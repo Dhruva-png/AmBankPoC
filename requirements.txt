@@ -1,0 +1,9 @@
+# Document extraction / comparison pipeline (src/)
+python-docx
+pdfplumber
+pypdf
+
+# Legacy .doc extraction only: requires MS Word installed and is Windows-only
+# (uses win32com automation -- see src/common/extract_text.py:extract_doc_text).
+# Not needed if you only work with .docx/.pdf.
+pywin32; sys_platform == "win32"

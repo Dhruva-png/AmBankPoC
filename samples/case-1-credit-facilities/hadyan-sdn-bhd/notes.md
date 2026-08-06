@@ -2,6 +2,11 @@
 
 Maps to `docs/poc-scope.md` → Case 1 (Letter of Offer vs. Credit Paper).
 
+> This is now a manual first read. The automated version — `src/case1_credit_facilities/`
+> extracting fields from both documents and running the KCT checks — lives in
+> [`generated/exception-report.md`](generated/exception-report.md); see
+> [`src/README.md`](../../../src/README.md) for how it works and how to rerun it.
+
 > **Confidentiality**: unlike the Case 2 "XYZ Sdn Bhd" set, these two files are **not**
 > anonymized at all — real customer name, registration number, guarantor NRIC, and
 > AmBank staff names/signatures appear throughout. See the root `README.md` for the

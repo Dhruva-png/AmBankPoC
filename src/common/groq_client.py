@@ -22,7 +22,7 @@ CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODELS_URL = "https://api.groq.com/openai/v1/models"
 
 TEXT_MODEL = "llama-3.3-70b-versatile"
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+VISION_MODEL = "qwen/qwen3.6-27b"
 
 REQUEST_TIMEOUT = 45
 
@@ -87,6 +87,8 @@ def _strip_fences(text: str) -> str:
 
 
 def _extract_json(text: str) -> dict:
+    if "<think>" in text:
+        text = re.sub(r"<think>.*?(</think>|$)", "", text, flags=re.DOTALL)
     cleaned = _strip_fences(text)
     try:
         return json.loads(cleaned)
@@ -97,7 +99,7 @@ def _extract_json(text: str) -> dict:
         raise
 
 
-def _post(model: str, body: dict, max_attempts_per_key: int = 2) -> dict:
+def _post(model: str, body: dict, max_cycles: int = 3) -> dict:
     keys = _keys()
     if not keys:
         raise GroqError(
@@ -106,18 +108,17 @@ def _post(model: str, body: dict, max_attempts_per_key: int = 2) -> dict:
         )
 
     last_error: Exception | None = None
-    for key in keys:
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        for attempt in range(1, max_attempts_per_key + 1):
+    for cycle in range(max_cycles):
+        rate_limited_wait = 0.0
+        for key in keys:
+            headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
             try:
                 resp = requests.post(CHAT_URL, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
                 if resp.status_code == 429:
-                    retry_after = float(resp.headers.get("Retry-After", 5))
-                    last_error = GroqError(f"rate limited on this key (429), retry-after={retry_after}s")
-                    if attempt < max_attempts_per_key:
-                        time.sleep(min(retry_after, 8))
-                        continue
-                    break
+                    retry_after = float(resp.headers.get("Retry-After", 10))
+                    last_error = GroqError(f"rate limited (429), retry-after={retry_after}s")
+                    rate_limited_wait = max(rate_limited_wait, retry_after)
+                    continue
                 resp.raise_for_status()
                 return resp.json()
             except requests.exceptions.HTTPError as exc:
@@ -128,11 +129,11 @@ def _post(model: str, body: dict, max_attempts_per_key: int = 2) -> dict:
                     pass
                 last_error = GroqError(f"{exc} {detail}")
                 if resp.status_code in (400, 401, 403):
-                    break
+                    raise last_error
             except requests.exceptions.RequestException as exc:
                 last_error = exc
-                if attempt < max_attempts_per_key:
-                    time.sleep(2)
+        if rate_limited_wait and cycle < max_cycles - 1:
+            time.sleep(min(rate_limited_wait, 30) + 1)
     raise GroqError(f"All configured Groq keys failed. Last error: {last_error}")
 
 
@@ -154,7 +155,7 @@ def vision_json(
     image_b64: str,
     mime_type: str = "image/png",
     model: str = VISION_MODEL,
-    max_tokens: int = 1200,
+    max_tokens: int = 800,
 ) -> dict:
     return vision_json_multi(prompt, [(image_b64, mime_type)], model=model, max_tokens=max_tokens)
 
@@ -163,7 +164,7 @@ def vision_json_multi(
     prompt: str,
     images: list[tuple[str, str]],
     model: str = VISION_MODEL,
-    max_tokens: int = 1200,
+    max_tokens: int = 800,
 ) -> dict:
     content: list[dict] = [{"type": "text", "text": prompt}]
     for image_b64, mime_type in images:
@@ -174,6 +175,7 @@ def vision_json_multi(
         "temperature": 0.0,
         "top_p": 0.1,
         "max_completion_tokens": max_tokens,
+        "reasoning_effort": "none",
         "response_format": {"type": "json_object"},
     }
     data = _post(model, body)

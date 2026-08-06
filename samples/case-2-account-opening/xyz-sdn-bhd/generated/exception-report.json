@@ -34,114 +34,186 @@
   },
   "email": {
     "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - Email Request.pdf",
-    "error": "Groq not configured",
-    "has_rejection_cycle": null,
-    "has_final_confirmation": null,
-    "participants": [],
-    "customer_name": "",
-    "sources": {}
+    "has_rejection_cycle": true,
+    "has_final_confirmation": true,
+    "participants": [
+      "Mahdalina Mohd Rawi",
+      "Sherine Soo Sook Yee",
+      "Yep Lee Xin"
+    ],
+    "customer_name": "XYZ SDN BHD",
+    "sources": {
+      "has_rejection_cycle": "XYZ Sdn Bhd - Email Request.pdf (Groq vision, all pages)",
+      "has_final_confirmation": "XYZ Sdn Bhd - Email Request.pdf (Groq vision, all pages)",
+      "participants": "XYZ Sdn Bhd - Email Request.pdf (Groq vision, all pages)",
+      "customer_name": "XYZ Sdn Bhd - Email Request.pdf (Groq vision, all pages)"
+    }
   },
   "ssm": {
     "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - SSM Search.pdf",
-    "error": "Groq not configured",
-    "sources": {}
+    "name": "XYZ Sdn Bhd",
+    "registration_no": "199001016623 (208292-V)",
+    "incorporation_date": "22-11-1990",
+    "registered_address": "910 (ST 1) BLOCK B PHILEO DMSP 2 NO 15 JALAN 16/11 OFF JALAN IMPIAN, PJ, SEL PETALING JAYA SELANGOR",
+    "business_address": "PT 64823, JALAN TUN PERAK 3 TAMAN PERDANA INDUSTRIAL PARK KU16 PELABUHAN KLANG SELANGOR",
+    "nature_of_business": "ENGAGED AS FREIGHT FORWARDER AND TRANSPORTATION AGENTS",
+    "directors": [
+      {
+        "name": "ABU",
+        "ic_or_passport": "111111-11-1111",
+        "designation": "SECRETARY",
+        "date_of_appointment": "07-02-2005"
+      },
+      {
+        "name": "ALI I",
+        "ic_or_passport": "330303-03-0303",
+        "designation": "DIRECTOR",
+        "date_of_appointment": "17-01-2005"
+      },
+      {
+        "name": "MUTHU I",
+        "ic_or_passport": "610826-05-5555",
+        "designation": "DIRECTOR",
+        "date_of_appointment": "10-06-2020"
+      },
+      {
+        "name": "AH CHONG",
+        "ic_or_passport": "770707-07-0707",
+        "designation": "DIRECTOR",
+        "date_of_appointment": "05-02-2026"
+      }
+    ],
+    "sources": {
+      "name": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
+      "registration_no": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
+      "registered_address": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
+      "business_address": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
+      "nature_of_business": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
+      "directors": "XYZ Sdn Bhd - SSM Search.pdf (page 3, Groq vision)"
+    }
   },
   "ccris_application": {
     "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - CCRIS Application Form.pdf",
-    "error": "Groq not configured",
-    "sources": {}
+    "facility_1_amount_applied": "100",
+    "facility_1_purpose_code": "71",
+    "location_of_utilization": "PT 64823, JALAN TAMAN PERDANA I KU16, 42000 PELABUHAN KLANG",
+    "prepared_by": "",
+    "checked_by": "",
+    "sources": {
+      "facility_1_amount_applied": "XYZ Sdn Bhd - CCRIS Application Form.pdf (page 1, Groq vision)",
+      "facility_1_purpose_code": "XYZ Sdn Bhd - CCRIS Application Form.pdf (page 1, Groq vision)",
+      "location_of_utilization": "XYZ Sdn Bhd - CCRIS Application Form.pdf (page 1, Groq vision)"
+    }
   },
   "guarantor_application": {
     "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - Guarantor Application Form.pdf",
-    "error": "Groq not configured",
-    "guarantors": [],
-    "sources": {}
+    "guarantors": [
+      {
+        "guarantor_name": "MNO Sdn Bhd",
+        "registered_address": "AS PER CIF",
+        "bus_reg_no_or_nric": "149114D",
+        "ssm_id": "",
+        "guarantor_to_applicant_relationship": "",
+        "_source": "XYZ Sdn Bhd - Guarantor Application Form.pdf (page 1, Groq vision)"
+      },
+      {
+        "guarantor_name": "MUTHU",
+        "registered_address": "AS PER CIF",
+        "bus_reg_no_or_nric": "610826-05-5555",
+        "ssm_id": "",
+        "guarantor_to_applicant_relationship": "SH",
+        "_source": "XYZ Sdn Bhd - Guarantor Application Form.pdf (page 2, Groq vision)"
+      }
+    ],
+    "sources": {
+      "guarantors": "XYZ Sdn Bhd - Guarantor Application Form.pdf (Groq vision, all pages)"
+    }
   },
   "results": [
     {
       "kct": "KCT-00001",
       "check": "Customer name in CLS matches SSM",
-      "status": "REVIEW",
-      "left_value": "",
+      "status": "PASS",
+      "left_value": "XYZ Sdn Bhd",
       "right_value": "AIROCEANIC EXPRESS SDN. BHD.",
-      "note": "Could not extract 'Customer Name' from one or both sources.",
-      "confidence": null,
-      "source_left": "",
+      "note": "The values refer to the same company, with differences in formatting and abbreviation that are consistent with common naming conventions, such as 'Sdn Bhd' being abbreviated for 'Sendirian Berhad' and 'SDN. BHD.' being a variation of the same.",
+      "confidence": 90.0,
+      "source_left": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
       "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
     },
     {
       "kct": "KCT-00002",
       "check": "Registration number in CLS matches SSM",
-      "status": "REVIEW",
-      "left_value": "",
+      "status": "PASS",
+      "left_value": "199001016623 (208292-V)",
       "right_value": "199001016623",
-      "note": "Could not extract a registration number from one or both sources.",
-      "confidence": null,
-      "source_left": "",
+      "note": "Registration numbers match.",
+      "confidence": 100.0,
+      "source_left": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
       "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
     },
     {
       "kct": "KCT-00003",
       "check": "Registered address in CLS matches SSM",
-      "status": "REVIEW",
-      "left_value": "",
+      "status": "PASS",
+      "left_value": "910 (ST 1) BLOCK B PHILEO DMSP 2 NO 15 JALAN 16/11 OFF JALAN IMPIAN, PJ, SEL PETALING JAYA SELANGOR",
       "right_value": "910 (ST 1) BLOCK B PHILEO DAMANSARA 2, NO 15 JALAN 16/11, OFF JALAN DAMANSARA, 46350 PETALING JAYA SELANGOR",
-      "note": "Could not extract 'Registered Address' from one or both sources.",
-      "confidence": null,
-      "source_left": "",
+      "note": "The values in both sources refer to the same address, with minor differences in formatting and wording, such as 'DMSP' vs 'DAMANSARA' and 'IMPIAN' vs 'DAMANSARA', which can be attributed to abbreviations or wording variations.",
+      "confidence": 90.0,
+      "source_left": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
       "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
     },
     {
       "kct": "KCT-00004",
       "check": "Business nature in CLS matches SSM",
-      "status": "REVIEW",
-      "left_value": "",
+      "status": "PASS",
+      "left_value": "ENGAGED AS FREIGHT FORWARDER AND TRANSPORTATION AGENTS",
       "right_value": "52290 52299 Other transportation support acti",
-      "note": "Could not extract 'Business Nature / Industry' from one or both sources.",
-      "confidence": null,
-      "source_left": "",
+      "note": "The values refer to the same industry, with 'freight forwarder and transportation agents' in source A matching the description of 'other transportation support acti' in source B, despite differences in wording and formatting.",
+      "confidence": 90.0,
+      "source_left": "XYZ Sdn Bhd - SSM Search.pdf (page 1, Groq vision)",
       "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
     },
     {
       "kct": "KCT-00005",
       "check": "Director information matches Application Form / SSM",
       "status": "REVIEW",
-      "left_value": "",
+      "left_value": "ABU, ALI I, MUTHU I, AH CHONG",
       "right_value": "(no Authorized Signatory list in this sample)",
-      "note": "Could not extract director/officer information from SSM.",
+      "note": "SSM lists 4 director(s)/officer(s), but this sample set has no Authorized Signatory listing to cross-check them against -- insufficient data for KCT-00005, not a confirmed pass.",
       "confidence": null,
-      "source_left": "",
+      "source_left": "XYZ Sdn Bhd - SSM Search.pdf (page 3, Groq vision)",
       "source_right": ""
     },
     {
       "kct": "KCT-00006",
       "check": "Guarantor information in CLS matches Guarantor Form",
-      "status": "REVIEW",
-      "left_value": "",
+      "status": "FAIL",
+      "left_value": "MNO Sdn Bhd, MUTHU",
       "right_value": "DARMENDRAN A/L KUNA, SAFEGUARDS CORPORATI",
-      "note": "Could not extract 'Guarantor Names' from one or both sources.",
-      "confidence": null,
-      "source_left": "",
+      "note": "The guarantor names in source A and source B appear to be completely different, with one being a company name and the other an individual's name, indicating a genuine mismatch. There is no apparent connection or similarity between 'MNO Sdn Bhd, MUTHU' and 'DARMENDRAN A/L KUNA, SAFEGUARDS CORPORATI' that would suggest they refer to the same entity.",
+      "confidence": 90.0,
+      "source_left": "XYZ Sdn Bhd - Guarantor Application Form.pdf (Groq vision, all pages)",
       "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
     },
     {
       "kct": "KCT-00007",
       "check": "CCRIS information matches CCRIS Form",
       "status": "REVIEW",
-      "left_value": "",
+      "left_value": "100",
       "right_value": "RM1000000.00 (ACF, purpose code 71)",
-      "note": "Could not extract a comparable facility amount from one or both sources.",
-      "confidence": null,
-      "source_left": "",
+      "note": "CCRIS Form shows a shorter number than CLS -- this form writes the amount as one digit per box in a long mostly-blank row, which the vision model under-reads (verified against the source image: it consistently loses leading digits). Treat this as low-confidence and verify the amount against the source document directly rather than trusting this as a confirmed exception.",
+      "confidence": 30.0,
+      "source_left": "XYZ Sdn Bhd - CCRIS Application Form.pdf (page 1, Groq vision)",
       "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
     },
     {
       "kct": "KCT-00008",
       "check": "Mandatory CIF supporting documents are present",
-      "status": "FAIL",
+      "status": "PASS",
       "left_value": "Application Form (CCRIS), Guarantor Form, SSM Documents, CLS Extract, Email Request",
-      "right_value": "Application Form (CCRIS), SSM Documents, CLS Extract, Email Request",
-      "note": "Missing or unextractable: Guarantor Form.",
+      "right_value": "Application Form (CCRIS), Guarantor Form, SSM Documents, CLS Extract, Email Request",
+      "note": "All mandatory supporting document types are present.",
       "confidence": 100.0,
       "source_left": "Case 2 document set",
       "source_right": "Case 2 document set"
@@ -149,13 +221,13 @@
     {
       "kct": "KCT-00009",
       "check": "Evidence of Maker-Checker review and approval",
-      "status": "REVIEW",
-      "left_value": "Participants: ",
-      "right_value": "Rejection cycle: None, Final confirmation: None",
-      "note": "Groq not configured -- could not analyze the email thread.",
-      "confidence": null,
-      "source_left": "",
-      "source_right": ""
+      "status": "PASS",
+      "left_value": "Participants: Mahdalina Mohd Rawi, Sherine Soo Sook Yee, Yep Lee Xin",
+      "right_value": "Rejection cycle: True, Final confirmation: True",
+      "note": "Email thread shows a maker/checker exchange ending in a final confirmation.",
+      "confidence": 100.0,
+      "source_left": "XYZ Sdn Bhd - Email Request.pdf (Groq vision, all pages)",
+      "source_right": "XYZ Sdn Bhd - Email Request.pdf (Groq vision, all pages)"
     }
   ]
 }

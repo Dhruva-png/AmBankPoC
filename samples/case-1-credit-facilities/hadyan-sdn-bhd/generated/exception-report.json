@@ -80,11 +80,11 @@
     {
       "kct": "KCT-00002",
       "check": "Facility purpose matches approved Credit Paper",
-      "status": "REVIEW",
+      "status": "FAIL",
       "left_value": "As performance bonds, tender deposits and security deposits in favour of Gas District Cooling (KLIA) Sdn Bhd for operation and maintenance agreement for the KLIA co-generation and district cooling storage plane (“KLIA Project”) and in relation to the operation of electrical system for Petronas Twin Towers, Masjid Asy-Syakirin, common estate, common facilities and Menara ExxonMobil.",
       "right_value": "As performance bonds, design bonds, maintenance bonds, tender deposits, advance payment, payment of excise duty, sales tax, utility and earnest money for tender / security deposits in favour of government statutory bodies and / or other parties acceptable to the Bank.",
-      "note": "Purpose wording differs from the Credit Paper's on-file purpose. Groq is not configured (set GROQ_API_KEY_1 in .env) so this cannot be auto-judged -- confirm manually against the CP's approved revised-purpose text.",
-      "confidence": null,
+      "note": "The LO's purpose wording includes additional types of bonds and payments not mentioned in the approved Credit Paper, such as design bonds, advance payment, and payment of excise duty, indicating a deviation from the approved purpose.",
+      "confidence": 90.0,
       "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Purpose'",
       "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — 'PURPOSE OF THE FACILITY' clause"
     },
@@ -116,8 +116,8 @@
       "status": "REVIEW",
       "left_value": "Customer’s future dividend payment to be capped at 50% of NPAT.",
       "right_value": "(see raw LO text)",
-      "note": "Approved special condition is not repeated verbatim in this LO. Groq is not configured (set GROQ_API_KEY_1 in .env) so this cannot be auto-judged.",
-      "confidence": null,
+      "note": "The Letter of Offer does not directly or indirectly reference the approved special condition regarding capping future dividend payments at 50% of NPAT, and it does not provide a carry-forward assurance for prior terms and conditions that would imply its inclusion.",
+      "confidence": 100.0,
       "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Covenants & Special Conditions'",
       "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — full text"
     },

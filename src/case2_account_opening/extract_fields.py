@@ -8,6 +8,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 from extract_text import extract_text, render_pdf_pages_to_images  # noqa: E402
 import groq_client  # noqa: E402
 
+VISION_SCALE = 1.3
+
+
+def _render_for_vision(path: str, render_dir: str) -> list[str]:
+    return render_pdf_pages_to_images(path, render_dir, scale=VISION_SCALE)
+
 
 def extract_cls_fields(path: str) -> dict:
     text = extract_text(path)
@@ -78,13 +84,13 @@ def extract_cls_fields(path: str) -> dict:
     }
 
 
-_EMAIL_THREAD_PROMPT = """These images are consecutive pages of a scanned/screenshotted email thread requesting CCRIS/CIF creation for a bank corporate customer. Read the whole thread in order and extract:
-- whether any message in the thread was rejected/declined by the checker at any point
-- whether the thread ends with a final confirmation that the application/CCRIS was created
-- the names of everyone who sent a message in the thread (maker and checker)
-- the customer/company name the thread is about, exactly as written (even if it differs from a name used elsewhere)
+_EMAIL_THREAD_PROMPT = """This image is one page of a scanned/screenshotted email thread requesting CCRIS/CIF creation for a bank corporate customer. Looking only at what is visible on this page, extract:
+- whether any message visible on this page was rejected/declined by the checker
+- whether any message visible on this page is a final confirmation that the application/CCRIS was created
+- the names of everyone who sent a message visible on this page (maker and/or checker)
+- the customer/company name mentioned on this page, exactly as written (even if it differs from a name used elsewhere)
 
-Return strict JSON only:
+Return strict JSON only, using false/[]/"" for anything not visible on this page:
 {"has_rejection_cycle": true or false, "has_final_confirmation": true or false, "participants": ["name1", "name2"], "customer_name": ""}"""
 
 
@@ -97,15 +103,22 @@ def extract_email_fields(path: str, render_dir: str) -> dict:
             "has_rejection_cycle": None, "has_final_confirmation": None,
             "participants": [], "customer_name": "", "sources": {},
         }
-    pages = render_pdf_pages_to_images(path, render_dir)
+    pages = _render_for_vision(path, render_dir)
     images = [groq_client.image_file_to_b64(p) for p in pages]
-    data = groq_client.vision_json_multi(_EMAIL_THREAD_PROMPT, images, max_tokens=800)
+    rejected, confirmed, participants, customer_name = False, False, set(), ""
+    for image in images:
+        data = groq_client.vision_json_multi(_EMAIL_THREAD_PROMPT, [image], max_tokens=400)
+        rejected = rejected or bool(data.get("has_rejection_cycle"))
+        confirmed = confirmed or bool(data.get("has_final_confirmation"))
+        participants.update(data.get("participants", []) or [])
+        if not customer_name and data.get("customer_name"):
+            customer_name = data["customer_name"]
     return {
         "source_file": str(path),
-        "has_rejection_cycle": data.get("has_rejection_cycle"),
-        "has_final_confirmation": data.get("has_final_confirmation"),
-        "participants": data.get("participants", []),
-        "customer_name": data.get("customer_name", ""),
+        "has_rejection_cycle": rejected,
+        "has_final_confirmation": confirmed,
+        "participants": sorted(participants),
+        "customer_name": customer_name,
         "sources": {
             "has_rejection_cycle": doc_source,
             "has_final_confirmation": doc_source,
@@ -121,27 +134,27 @@ _SSM_PAGE1_PROMPT = """Extract the following fields from this SSM (Companies Com
 _SSM_DIRECTORS_PROMPT = """This is a Directors/Officers page from an SSM company search result. Extract every listed director/officer/secretary as a JSON array. Return strict JSON only:
 {"directors": [{"name": "", "ic_or_passport": "", "designation": "", "date_of_appointment": ""}]}"""
 
-_CCRIS_APP_PROMPT = """This is a New CCRIS Enhancement application form (Facility Details section). Extract Facility 1's details and who prepared/checked the form. Return strict JSON only, using "" for anything not visible:
+_CCRIS_APP_PROMPT = """This is a New CCRIS Enhancement application form (Facility Details section). The "AMOUNT APPLIED" field is written as one digit per individual box (like a cheque amount) -- read every box left to right and concatenate all of them into a single number; do not stop at the first few boxes. Extract Facility 1's details and who prepared/checked the form. Return strict JSON only, using "" for anything not visible:
 {"facility_1_amount_applied": "", "facility_1_purpose_code": "", "location_of_utilization": "", "prepared_by": "", "checked_by": ""}"""
 
 _GUARANTOR_APP_PROMPT = """This is a Guarantor Input Form from a bank CIF creation package. Extract the guarantor's details. Return strict JSON only, using "" for anything not visible:
 {"guarantor_name": "", "registered_address": "", "bus_reg_no_or_nric": "", "ssm_id": "", "guarantor_to_applicant_relationship": ""}"""
 
 
-def _vision_extract(image_path: str, prompt: str) -> dict:
+def _vision_extract(image_path: str, prompt: str, max_tokens: int = 500) -> dict:
     b64, mime = groq_client.image_file_to_b64(image_path)
-    return groq_client.vision_json(prompt, b64, mime)
+    return groq_client.vision_json(prompt, b64, mime, max_tokens=max_tokens)
 
 
 def extract_ssm_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not groq_client.is_configured():
         return {"source_file": str(path), "error": "Groq not configured", "sources": {}}
-    pages = render_pdf_pages_to_images(path, render_dir)
+    pages = _render_for_vision(path, render_dir)
     corporate = _vision_extract(pages[0], _SSM_PAGE1_PROMPT) if pages else {}
     directors = {}
     if len(pages) >= 3:
-        directors = _vision_extract(pages[2], _SSM_DIRECTORS_PROMPT)
+        directors = _vision_extract(pages[2], _SSM_DIRECTORS_PROMPT, max_tokens=900)
 
     doc_source_p1 = f"{doc_name} (page 1, Groq vision)"
     doc_source_p3 = f"{doc_name} (page 3, Groq vision)"
@@ -166,7 +179,7 @@ def extract_ccris_application_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not groq_client.is_configured():
         return {"source_file": str(path), "error": "Groq not configured", "sources": {}}
-    pages = render_pdf_pages_to_images(path, render_dir)
+    pages = _render_for_vision(path, render_dir)
     data = _vision_extract(pages[0], _CCRIS_APP_PROMPT) if pages else {}
     doc_source = f"{doc_name} (page 1, Groq vision)"
     return {
@@ -186,7 +199,7 @@ def extract_guarantor_application_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not groq_client.is_configured():
         return {"source_file": str(path), "error": "Groq not configured", "guarantors": [], "sources": {}}
-    pages = render_pdf_pages_to_images(path, render_dir)
+    pages = _render_for_vision(path, render_dir)
     guarantors = []
     for i, page in enumerate(pages, start=1):
         data = _vision_extract(page, _GUARANTOR_APP_PROMPT)

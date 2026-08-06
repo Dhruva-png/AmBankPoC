@@ -81,11 +81,11 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
         source_left=ssm_src.get("name", ""), source_right=cls_src.get("customer_name", ""),
     ))
 
-    ssm_reg = _digits(ssm.get("registration_no", ""))
+    ssm_reg_candidates = re.findall(r"\d{5,}", ssm.get("registration_no", ""))
     cls_reg = _digits(cls.get("registration_no_2", ""))
-    if not ssm_reg or not cls_reg:
+    if not ssm_reg_candidates or not cls_reg:
         status, confidence, note = REVIEW, None, "Could not extract a registration number from one or both sources."
-    elif ssm_reg == cls_reg:
+    elif cls_reg in ssm_reg_candidates:
         status, confidence, note = PASS, 100.0, "Registration numbers match."
     else:
         status, confidence, note = FAIL, 100.0, "Registration number differs between SSM and CLS."
@@ -149,6 +149,15 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
         status, confidence, note = REVIEW, None, "Could not extract a comparable facility amount from one or both sources."
     elif ccris_amount_digits.lstrip("0") == cls_amount_digits.lstrip("0"):
         status, confidence, note = PASS, 100.0, "CCRIS Form facility amount matches the CLS facility amount."
+    elif len(ccris_amount_digits.lstrip("0")) < len(cls_amount_digits.lstrip("0")) - 1:
+        status, confidence, note = REVIEW, 30.0, (
+            "CCRIS Form shows a shorter number than CLS -- this form writes the amount as "
+            "one digit per box in a long mostly-blank row, which the vision model "
+            "under-reads (verified against the source image: it consistently loses "
+            "leading digits). Treat this as low-confidence and verify the amount "
+            "against the source document directly rather than trusting this as a "
+            "confirmed exception."
+        )
     else:
         status, confidence, note = FAIL, 100.0, "CCRIS Form facility amount does not match the CLS facility amount."
     results.append(CheckResult(

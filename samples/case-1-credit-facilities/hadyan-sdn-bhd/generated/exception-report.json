@@ -28,7 +28,17 @@
         "pricing": "1.25%p.a.",
         "security_details": "1 to 1 TD-i will be placed upon issuance of BG-i\nPG of Datin Sri Sharifah"
       }
-    ]
+    ],
+    "sources": {
+      "customer": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table",
+      "purpose": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Purpose'",
+      "availability_period": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Availability Period'",
+      "term_maturity": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Term/Maturity'",
+      "security": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Security'",
+      "support_guarantees": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Support (Guarantees)'",
+      "special_conditions": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Covenants & Special Conditions'",
+      "facilities": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Facility limit table (per book)"
+    }
   },
   "letter_of_offer": {
     "source_file": "samples/case-1-credit-facilities/hadyan-sdn-bhd/Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc",
@@ -44,80 +54,116 @@
     "signatories": [
       "TAN BEE YAN",
       "TAY BEE LENG"
-    ]
+    ],
+    "sources": {
+      "facility_amount": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — 'RE:' facility heading line",
+      "addressee_name": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — addressee block",
+      "issuing_entity": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — 'for and on behalf of' signature line",
+      "purpose": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — 'PURPOSE OF THE FACILITY' clause",
+      "guarantor_name": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — guarantor acknowledgment block",
+      "letter_date": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — letter header",
+      "signatories": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — signature block"
+    }
   },
   "results": [
     {
       "kct": "KCT-00001",
       "check": "Facility amount matches approved Credit Paper",
       "status": "PASS",
-      "credit_paper_value": "RM2,500 '000 (AmBank (RM ‘000), BG)",
-      "lo_value": "RM2,500,000.00",
-      "note": "LO amount matches an approved facility limit."
+      "left_value": "RM2,500 '000 (AmBank (RM ‘000), BG)",
+      "right_value": "RM2,500,000.00",
+      "note": "LO amount matches an approved facility limit.",
+      "confidence": 100.0,
+      "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Facility limit table (per book)",
+      "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — 'RE:' facility heading line"
     },
     {
       "kct": "KCT-00002",
       "check": "Facility purpose matches approved Credit Paper",
       "status": "REVIEW",
-      "credit_paper_value": "As performance bonds, tender deposits and security deposits in favour of Gas District Cooling (KLIA) Sdn Bhd for operation and maintenance agreement for the KLIA co-generation and district cooling storage plane (“KLIA Project”) and in relation to the operation of electrical system for Petronas Twin Towers, Masjid Asy-Syakirin, common estate, common facilities and Menara ExxonMobil.",
-      "lo_value": "As performance bonds, design bonds, maintenance bonds, tender deposits, advance payment, payment of excise duty, sales tax, utility and earnest money for tender / security deposits in favour of government statutory bodies and / or other parties acceptable to the Bank.",
-      "note": "Purpose wording differs from the Credit Paper's on-file purpose. The Credit Paper's 'Purpose of Submission' section also requests a purpose revision, so this may be an approved change rather than a true exception -- confirm against the CP's approved revised-purpose text before concluding Fail (see KCT-00002 in the exception catalogue)."
+      "left_value": "As performance bonds, tender deposits and security deposits in favour of Gas District Cooling (KLIA) Sdn Bhd for operation and maintenance agreement for the KLIA co-generation and district cooling storage plane (“KLIA Project”) and in relation to the operation of electrical system for Petronas Twin Towers, Masjid Asy-Syakirin, common estate, common facilities and Menara ExxonMobil.",
+      "right_value": "As performance bonds, design bonds, maintenance bonds, tender deposits, advance payment, payment of excise duty, sales tax, utility and earnest money for tender / security deposits in favour of government statutory bodies and / or other parties acceptable to the Bank.",
+      "note": "Purpose wording differs from the Credit Paper's on-file purpose. Groq is not configured (set GROQ_API_KEY_1 in .env) so this cannot be auto-judged -- confirm manually against the CP's approved revised-purpose text.",
+      "confidence": null,
+      "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Purpose'",
+      "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — 'PURPOSE OF THE FACILITY' clause"
     },
     {
       "kct": "KCT-00003",
       "check": "Pricing / profit rate matches approved Credit Paper",
       "status": "N/A",
-      "credit_paper_value": "1.25%p.a.",
-      "lo_value": "(not restated in LO)",
-      "note": "This LO is a purpose-revision supplemental letter and does not restate pricing -- expected, not an exception."
+      "left_value": "1.25%p.a.",
+      "right_value": "(not restated in LO)",
+      "note": "This LO is a purpose-revision supplemental letter and does not restate pricing -- expected, not an exception.",
+      "confidence": null,
+      "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Facility limit table (per book)",
+      "source_right": ""
     },
     {
       "kct": "KCT-00004",
       "check": "Facility tenure matches approved Credit Paper",
       "status": "N/A",
-      "credit_paper_value": "Existing Review Date: 30 September 2025\nNext Review Date: 30 September 2026",
-      "lo_value": "(not restated in LO)",
-      "note": "This LO is a purpose-revision supplemental letter and does not restate tenure -- expected, not an exception."
+      "left_value": "Existing Review Date: 30 September 2025\nNext Review Date: 30 September 2026",
+      "right_value": "(not restated in LO)",
+      "note": "This LO is a purpose-revision supplemental letter and does not restate tenure -- expected, not an exception.",
+      "confidence": null,
+      "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Term/Maturity'",
+      "source_right": ""
     },
     {
       "kct": "KCT-00005",
       "check": "Approved special conditions reflected in LO",
       "status": "REVIEW",
-      "credit_paper_value": "Customer’s future dividend payment to be capped at 50% of NPAT.",
-      "lo_value": "(see raw LO text)",
-      "note": "Approved special condition/covenant is not repeated in this LO -- confirm it is still in force via the original (non-supplemental) LO rather than omitted."
+      "left_value": "Customer’s future dividend payment to be capped at 50% of NPAT.",
+      "right_value": "(see raw LO text)",
+      "note": "Approved special condition is not repeated verbatim in this LO. Groq is not configured (set GROQ_API_KEY_1 in .env) so this cannot be auto-judged.",
+      "confidence": null,
+      "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Covenants & Special Conditions'",
+      "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — full text"
     },
     {
       "kct": "Exception #8",
       "check": "Customer name/registration number match",
       "status": "PASS",
-      "credit_paper_value": "Hadyan Sdn Bhd  (200101007110 / 542866W)",
-      "lo_value": "HADYAN SDN BHD [200101007110 (542866-W)]",
-      "note": "Customer name and registration number match."
+      "left_value": "Hadyan Sdn Bhd  (200101007110 / 542866W)",
+      "right_value": "HADYAN SDN BHD [200101007110 (542866-W)]",
+      "note": "Customer name and registration number match.",
+      "confidence": 100.0,
+      "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table",
+      "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — addressee block"
     },
     {
       "kct": "Supplementary",
       "check": "Guarantor identity matches approved Credit Paper",
       "status": "PASS",
-      "credit_paper_value": "Personal guarantee of Datin Sri Sharifah (NRIC: 940202-07-5149)",
-      "lo_value": "Datin Sri Sharifah (940202-07-5149)",
-      "note": "Guarantor NRIC matches between Credit Paper and LO."
+      "left_value": "Personal guarantee of Datin Sri Sharifah (NRIC: 940202-07-5149)",
+      "right_value": "Datin Sri Sharifah (940202-07-5149)",
+      "note": "Guarantor NRIC matches between Credit Paper and LO.",
+      "confidence": 100.0,
+      "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Principal Terms and Conditions table, row 'Support (Guarantees)'",
+      "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — guarantor acknowledgment block"
     },
     {
       "kct": "Exception #9",
       "check": "Letterhead matches facility book (Conventional/Islamic)",
       "status": "PASS",
-      "credit_paper_value": "AmBank (RM ‘000)",
-      "lo_value": "AMBANK (M) BERHAD",
-      "note": "Letterhead/issuing entity is consistent with the matched facility's book."
+      "left_value": "AmBank (RM ‘000)",
+      "right_value": "AMBANK (M) BERHAD",
+      "note": "Letterhead/issuing entity is consistent with the matched facility's book.",
+      "confidence": 100.0,
+      "source_left": "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx — Facility limit table (per book)",
+      "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — 'for and on behalf of' signature line"
     },
     {
       "kct": "KCT-00006 / KCT-00007",
       "check": "LO issuance date present (informational only -- not an approval-timing check)",
       "status": "REVIEW",
-      "credit_paper_value": "(approval date not extractable -- signature image)",
-      "lo_value": "12 February 2026",
-      "note": "LO carries an issuance date (12 Feb 2026), but KCT-00006 (LO issued before approval) and KCT-00007 (Maker-Checker evidence) cannot be verified automatically -- the Credit Paper's approval date/signatures are in a scanned image, not text. Needs manual confirmation."
+      "left_value": "(approval date not extractable -- signature image)",
+      "right_value": "12 February 2026",
+      "note": "LO carries an issuance date, but KCT-00006 (LO issued before approval) and KCT-00007 (Maker-Checker evidence) cannot be verified automatically -- the Credit Paper's approval date/signatures are in a scanned image, not text. Needs manual confirmation.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc — letter header"
     }
   ]
 }

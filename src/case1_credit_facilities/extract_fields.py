@@ -1,11 +1,3 @@
-"""Case 1 (Credit Facilities): pull the KCT-relevant fields out of a Credit Paper
-(.docx, Principal Terms and Conditions appendix) and a Letter of Offer (.doc/.docx/.pdf).
-
-Credit Paper fields come from its tables (structured, label:value or a header row +
-data rows) via python-docx -- far more reliable than regex over flattened text.
-LO fields come from regex over the extracted plain text, since an LO is a prose letter,
-not a form.
-"""
 from __future__ import annotations
 
 import re
@@ -16,13 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 from extract_text import extract_text  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# Credit Paper (structured tables)
-# ---------------------------------------------------------------------------
-
 def _find_principal_terms_table(doc):
-    """The Principal Terms and Conditions table: rows shaped ['<Label>', ':', '<Value>']
-    starting with a 'Customer' row."""
     for table in doc.tables:
         for row in table.rows:
             cells = [c.text.strip() for c in row.cells]
@@ -32,8 +18,6 @@ def _find_principal_terms_table(doc):
 
 
 def _find_facility_limit_tables(doc):
-    """Per-book (AmBank / AmIslamic) facility limit tables: header row
-    ['Customer', 'Facility', 'Limit', ..., 'Pricing', 'Security Details']."""
     tables = []
     for table in doc.tables:
         for row in table.rows:
@@ -45,8 +29,6 @@ def _find_facility_limit_tables(doc):
 
 
 def _header_index(header_cells: list[str], label: str) -> int:
-    """First occurrence -- merged header cells repeat the same text across the cells
-    they span, so later occurrences of e.g. a duplicated 'Limit' column are ignored."""
     return header_cells.index(label)
 
 
@@ -56,7 +38,7 @@ def extract_facility_limits(table) -> list[dict]:
     idx_limit = _header_index(header, "Limit")
     idx_pricing = _header_index(header, "Pricing")
     idx_security = _header_index(header, "Security Details")
-    book = table.rows[0].cells[0].text.strip()  # e.g. "AmBank (RM 000)"
+    book = table.rows[0].cells[0].text.strip()
 
     facilities = []
     for row in table.rows[2:]:
@@ -81,6 +63,7 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
     import docx
 
     doc = docx.Document(docx_path)
+    doc_name = Path(docx_path).name
 
     terms_table = _find_principal_terms_table(doc)
     if terms_table is None:
@@ -96,6 +79,9 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
     for limit_table in _find_facility_limit_tables(doc):
         facilities.extend(extract_facility_limits(limit_table))
 
+    terms_source = f"{doc_name} — Principal Terms and Conditions table"
+    limits_source = f"{doc_name} — Facility limit table (per book)"
+
     return {
         "source_file": str(docx_path),
         "customer": terms.get("Customer", ""),
@@ -109,12 +95,18 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
         "conditions_precedent": terms.get("Conditions Precedent", ""),
         "special_conditions": terms.get("Covenants & Special Conditions", ""),
         "facilities": facilities,
+        "sources": {
+            "customer": terms_source,
+            "purpose": terms_source + ", row 'Purpose'",
+            "availability_period": terms_source + ", row 'Availability Period'",
+            "term_maturity": terms_source + ", row 'Term/Maturity'",
+            "security": terms_source + ", row 'Security'",
+            "support_guarantees": terms_source + ", row 'Support (Guarantees)'",
+            "special_conditions": terms_source + ", row 'Covenants & Special Conditions'",
+            "facilities": limits_source,
+        },
     }
 
-
-# ---------------------------------------------------------------------------
-# Letter of Offer (prose -> regex)
-# ---------------------------------------------------------------------------
 
 _RE_DATE = re.compile(r"Date\s*:?\s*(\d{1,2}\s+\w+\s+\d{4})")
 _RE_REF = re.compile(r"Our Ref\.?\s*:?\s*([^\n]+)")
@@ -140,24 +132,18 @@ _RE_SIGNATORY_BLOCK = re.compile(
 
 
 def _extract_signatories(normalized_with_tabs: str) -> list[str]:
-    """Bank LOs commonly lay out two signatories side by side as tab-separated
-    columns (name line, then title line, then department line). Split the first
-    non-blank line of the signature block on runs of whitespace >=2 chars (i.e.
-    tabs/multi-space gaps, not the single space within "TAN BEE YAN")."""
     m = _RE_SIGNATORY_BLOCK.search(normalized_with_tabs)
     if not m:
         return []
     lines = [ln.strip() for ln in m.group(1).split("\n") if ln.strip()]
     if not lines:
         return []
-    names = [n.strip() for n in re.split(r"[ \t]{2,}|\t+", lines[0]) if n.strip()]
-    return names
+    return [n.strip() for n in re.split(r"[ \t]{2,}|\t+", lines[0]) if n.strip()]
 
 
 def extract_lo_fields(path: str) -> dict:
     text = extract_text(path)
-    # the legacy .doc extraction uses bare \r as the paragraph separator (no \n) --
-    # normalize before running any of the line-anchored regexes below
+    doc_name = Path(path).name
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     signatories = _extract_signatories(normalized)
     flat = re.sub(r"[ \t]+", " ", normalized)
@@ -201,6 +187,15 @@ def extract_lo_fields(path: str) -> dict:
         "guarantor_name": guarantor_name,
         "guarantor_nric": guarantor_nric,
         "signatories": signatories,
+        "sources": {
+            "facility_amount": f"{doc_name} — 'RE:' facility heading line",
+            "addressee_name": f"{doc_name} — addressee block",
+            "issuing_entity": f"{doc_name} — 'for and on behalf of' signature line",
+            "purpose": f"{doc_name} — 'PURPOSE OF THE FACILITY' clause",
+            "guarantor_name": f"{doc_name} — guarantor acknowledgment block",
+            "letter_date": f"{doc_name} — letter header",
+            "signatories": f"{doc_name} — signature block",
+        },
     }
 
 
@@ -212,8 +207,6 @@ def main() -> None:
         raise SystemExit(2)
     path = sys.argv[1]
     if Path(path).suffix.lower() == ".docx":
-        # Ambiguous extension: try the Credit Paper table structure first, fall
-        # back to LO-style prose parsing if that table isn't present.
         try:
             result = extract_credit_paper_fields(path)
         except ValueError:

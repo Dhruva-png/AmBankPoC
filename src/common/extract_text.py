@@ -1,10 +1,3 @@
-"""Generic document text extraction: .docx, .doc and .pdf -> plain text.
-
-Mirrors the paragraph/table text extraction approach used to read the POC
-scope deck (python-pptx) -- here for Word/PDF source documents instead of
-slides. Used as the first step of both Case 1 and Case 2: extract text,
-then compare.
-"""
 from __future__ import annotations
 
 import sys
@@ -12,7 +5,6 @@ from pathlib import Path
 
 
 def extract_docx_text(path: str) -> str:
-    """Paragraphs in document order, then every table rendered as one row per line."""
     import docx
 
     doc = docx.Document(path)
@@ -29,7 +21,6 @@ def extract_docx_text(path: str) -> str:
 
 
 def extract_doc_text(path: str) -> str:
-    """Legacy .doc via MS Word COM automation (requires Word installed, Windows only)."""
     import win32com.client
 
     word = win32com.client.DispatchEx("Word.Application")
@@ -45,9 +36,6 @@ def extract_doc_text(path: str) -> str:
 
 
 def extract_pdf_text(path: str) -> str:
-    """Text-layer extraction via pdfplumber. Returns '' for pages with no text layer
-    (i.e. scanned/flattened images) -- those need OCR or vision-model parsing, not
-    handled here."""
     import pdfplumber
 
     parts: list[str] = []
@@ -56,6 +44,31 @@ def extract_pdf_text(path: str) -> str:
             text = page.extract_text() or ""
             parts.append(f"--- page {i + 1} ---\n{text}")
     return "\n\n".join(parts)
+
+
+def pdf_has_text_layer(path: str, min_chars: int = 40) -> bool:
+    import pdfplumber
+
+    with pdfplumber.open(path) as pdf:
+        total = sum(len((page.extract_text() or "").strip()) for page in pdf.pages)
+    return total >= min_chars
+
+
+def render_pdf_pages_to_images(path: str, out_dir: str, scale: float = 2.0) -> list[str]:
+    import pypdfium2 as pdfium
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    stem = Path(path).stem
+    pdf = pdfium.PdfDocument(path)
+    out_paths = []
+    for i in range(len(pdf)):
+        page = pdf[i]
+        bitmap = page.render(scale=scale)
+        image = bitmap.to_pil()
+        out_path = str(Path(out_dir) / f"{stem}_p{i + 1:02d}.png")
+        image.save(out_path)
+        out_paths.append(out_path)
+    return out_paths
 
 
 def extract_text(path: str) -> str:

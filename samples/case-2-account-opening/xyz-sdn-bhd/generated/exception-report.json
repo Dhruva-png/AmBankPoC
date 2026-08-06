@@ -1,0 +1,161 @@
+{
+  "cls": {
+    "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - CLS Extract.pdf",
+    "customer_name": "AIROCEANIC EXPRESS SDN. BHD.",
+    "registration_no_1": "208292V",
+    "registration_no_2": "199001016623",
+    "cif_number": "1100006972",
+    "application_no": "1100006972104",
+    "business_nature": "52290 52299 Other transportation support acti",
+    "registered_address": "910 (ST 1) BLOCK B PHILEO DAMANSARA 2, NO 15 JALAN 16/11, OFF JALAN DAMANSARA, 46350 PETALING JAYA SELANGOR",
+    "correspondence_address": "PT 64823 JALAN TUN PERAK 3, TAMAN PERDANA INDUSTRIAL PARK, KU16, 42000 PELABUHAN KLANG SELANGOR",
+    "guarantors": [
+      {
+        "facility_cif": "1400000417",
+        "short_name": "DARMENDRAN A/L KUNA"
+      },
+      {
+        "facility_cif": "2900000631",
+        "short_name": "SAFEGUARDS CORPORATI"
+      }
+    ],
+    "facility_amount": "1000000.00",
+    "purpose_code": "71",
+    "sources": {
+      "customer_name": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract",
+      "registration_no_1": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract",
+      "registration_no_2": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract",
+      "business_nature": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract",
+      "registered_address": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract",
+      "correspondence_address": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract",
+      "guarantors": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract",
+      "facility_amount": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
+    }
+  },
+  "email": {
+    "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - Email Request.pdf",
+    "error": "Groq not configured",
+    "has_rejection_cycle": null,
+    "has_final_confirmation": null,
+    "participants": [],
+    "customer_name": "",
+    "sources": {}
+  },
+  "ssm": {
+    "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - SSM Search.pdf",
+    "error": "Groq not configured",
+    "sources": {}
+  },
+  "ccris_application": {
+    "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - CCRIS Application Form.pdf",
+    "error": "Groq not configured",
+    "sources": {}
+  },
+  "guarantor_application": {
+    "source_file": "samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - Guarantor Application Form.pdf",
+    "error": "Groq not configured",
+    "guarantors": [],
+    "sources": {}
+  },
+  "results": [
+    {
+      "kct": "KCT-00001",
+      "check": "Customer name in CLS matches SSM",
+      "status": "REVIEW",
+      "left_value": "",
+      "right_value": "AIROCEANIC EXPRESS SDN. BHD.",
+      "note": "Could not extract 'Customer Name' from one or both sources.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
+    },
+    {
+      "kct": "KCT-00002",
+      "check": "Registration number in CLS matches SSM",
+      "status": "REVIEW",
+      "left_value": "",
+      "right_value": "199001016623",
+      "note": "Could not extract a registration number from one or both sources.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
+    },
+    {
+      "kct": "KCT-00003",
+      "check": "Registered address in CLS matches SSM",
+      "status": "REVIEW",
+      "left_value": "",
+      "right_value": "910 (ST 1) BLOCK B PHILEO DAMANSARA 2, NO 15 JALAN 16/11, OFF JALAN DAMANSARA, 46350 PETALING JAYA SELANGOR",
+      "note": "Could not extract 'Registered Address' from one or both sources.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
+    },
+    {
+      "kct": "KCT-00004",
+      "check": "Business nature in CLS matches SSM",
+      "status": "REVIEW",
+      "left_value": "",
+      "right_value": "52290 52299 Other transportation support acti",
+      "note": "Could not extract 'Business Nature / Industry' from one or both sources.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
+    },
+    {
+      "kct": "KCT-00005",
+      "check": "Director information matches Application Form / SSM",
+      "status": "REVIEW",
+      "left_value": "",
+      "right_value": "(no Authorized Signatory list in this sample)",
+      "note": "Could not extract director/officer information from SSM.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": ""
+    },
+    {
+      "kct": "KCT-00006",
+      "check": "Guarantor information in CLS matches Guarantor Form",
+      "status": "REVIEW",
+      "left_value": "",
+      "right_value": "DARMENDRAN A/L KUNA, SAFEGUARDS CORPORATI",
+      "note": "Could not extract 'Guarantor Names' from one or both sources.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
+    },
+    {
+      "kct": "KCT-00007",
+      "check": "CCRIS information matches CCRIS Form",
+      "status": "REVIEW",
+      "left_value": "",
+      "right_value": "RM1000000.00 (ACF, purpose code 71)",
+      "note": "Could not extract a comparable facility amount from one or both sources.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": "XYZ Sdn Bhd - CLS Extract.pdf — CLS core-banking screen extract"
+    },
+    {
+      "kct": "KCT-00008",
+      "check": "Mandatory CIF supporting documents are present",
+      "status": "FAIL",
+      "left_value": "Application Form (CCRIS), Guarantor Form, SSM Documents, CLS Extract, Email Request",
+      "right_value": "Application Form (CCRIS), SSM Documents, CLS Extract, Email Request",
+      "note": "Missing or unextractable: Guarantor Form.",
+      "confidence": 100.0,
+      "source_left": "Case 2 document set",
+      "source_right": "Case 2 document set"
+    },
+    {
+      "kct": "KCT-00009",
+      "check": "Evidence of Maker-Checker review and approval",
+      "status": "REVIEW",
+      "left_value": "Participants: ",
+      "right_value": "Rejection cycle: None, Final confirmation: None",
+      "note": "Groq not configured -- could not analyze the email thread.",
+      "confidence": null,
+      "source_left": "",
+      "source_right": ""
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "case1",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "streamlit", "run", "apps/case1_credit_facilities/app.py", "--server.port", "8701"],
+      "port": 8701
+    },
+    {
+      "name": "case2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "streamlit", "run", "apps/case2_account_opening/app.py", "--server.port", "8702"],
+      "port": 8702
+    }
+  ]
+}

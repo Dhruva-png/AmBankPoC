@@ -7,20 +7,21 @@ import re
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Case 1: Credit Facilities Control Engine",
-    page_icon="🏦",
+    page_title="Credit Facilities Control & Audit Portal",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- ADVANCED UI & SIDEBAR STYLING ---
+# --- CORPORATE ENTERPRISE STYLING ---
 st.markdown("""
     <style>
+    /* Global Page Styling */
     .main {
         background-color: #f8fafc;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     
+    /* Sidebar Styling */
     [data-testid="stSidebar"] {
         background-color: #ffffff;
         border-right: 1px solid #e2e8f0;
@@ -29,76 +30,87 @@ st.markdown("""
     
     .sidebar-header-box {
         text-align: center;
-        padding: 12px;
-        margin-bottom: 15px;
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        border-radius: 8px;
-        color: white;
+        padding: 14px 10px;
+        margin-bottom: 20px;
+        background-color: #0f172a;
+        border-radius: 6px;
+        color: #ffffff;
     }
 
     .sidebar-title {
-        font-size: 1rem;
+        font-size: 0.90rem;
         font-weight: 700;
         letter-spacing: 0.5px;
+        text-transform: uppercase;
     }
 
     .sidebar-subtitle {
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         color: #94a3b8;
-        margin-top: 2px;
+        margin-top: 4px;
     }
 
+    /* Container Card Styling */
     .quad-card {
         background-color: #ffffff;
-        border-radius: 8px;
+        border-radius: 6px;
         padding: 16px;
         border: 1px solid #e2e8f0;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
-        margin-bottom: 15px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+        margin-bottom: 16px;
     }
     
     .card-title {
-        font-size: 0.92rem;
+        font-size: 0.85rem;
         font-weight: 700;
         color: #0f172a;
-        margin-bottom: 10px;
-        padding-bottom: 6px;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
         border-bottom: 1px solid #f1f5f9;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
     }
 
+    /* PDF Frame */
     .pdf-frame {
         width: 100%;
-        height: 380px;
+        height: 390px;
         border: 1px solid #cbd5e1;
-        border-radius: 6px;
+        border-radius: 4px;
     }
 
     .empty-viewer {
-        height: 380px;
+        height: 390px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         background-color: #f8fafc;
-        border: 2px dashed #cbd5e1;
-        border-radius: 6px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 4px;
         color: #64748b;
         font-size: 0.85rem;
         text-align: center;
         padding: 20px;
     }
 
+    /* Primary Action Buttons */
     .stButton>button {
-        background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
-        color: white;
+        background-color: #1e3a8a;
+        color: #ffffff;
         font-weight: 600;
-        border-radius: 6px;
+        border-radius: 4px;
         border: none;
-        padding: 0.55rem 1rem;
+        padding: 0.6rem 1rem;
         width: 100%;
+    }
+
+    .stButton>button:hover {
+        background-color: #1d4ed8;
+        color: #ffffff;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -144,23 +156,21 @@ def read_file_text(uploaded_file):
     return text
 
 
-# --- SCOPE-STRICT EXTRACTION ENGINE ---
+# --- EXTRACTION ENGINE ---
 def extract_scope_fields(raw_text, doc_type="Credit Paper"):
     """
-    Parses strictly the required Scope fields from source documents.
-    Scope: Facility Amount, Purpose, Pricing/Rate, Tenure, Special Conditions,
-    Customer Info (Name, IC/Reg, Address, Contact), Letterhead, Issuance Date.
+    Parses required Scope fields from source documents.
     """
     if not raw_text.strip():
         return pd.DataFrame(columns=["Scope Field", "Extracted Value", "Confidence", "Page Index"])
 
     lines = raw_text.split("\n")
     
-    # Scope Regex Patterns
+    # Scope Regular Expression Rules
     patterns = {
         "Customer Name": r"(?:Customer Name|Borrower Name|Name of Applicant)\s*[:\-]?\s*([A-Za-z0-0\.\s&]+Sdn\s+Bhd|[A-Za-z0-9\.\s&]+Bhd|[A-Z\s]{4,})",
         "Customer IC / Reg No": r"(?:Registration No|IC No|MyKad|BRN|Reg No)\s*[:\-]?\s*([A-Za-z0-9\-\s\(\)]+)",
-        "Customer Registered Address": r"(?:Address|Registered Address)\s*[:\-]?\s*([A-Za-z0-9\s,\.\-\/]+(?:Street|Road|Jalan|Avenue|Floor|Park|Lumpur|Penang|Selangor|Perak|Johor|3|4|5|6|7|8|9)[A-Za-z0-9\s,\.\-\/]+)",
+        "Customer Registered Address": r"(?:Address|Registered Address)\s*[:\-]?\s*([A-Za-z0-9\s,\.\-\/]+(?:Street|Road|Jalan|Avenue|Floor|Park|Lumpur|Penang|Selangor|Perak|Johor)[A-Za-z0-9\s,\.\-\/]+)",
         "Contact Details": r"(?:Contact|Tel|Phone|Mobile|Email)\s*[:\-]?\s*([\+?\d\s\-\(\)\@a-zA-Z\.]+)",
         "Facility Amount": r"(?:Facility Amount|Approved Limit|Proposed Limit|Amount)\s*[:\-]?\s*(MYR\s*[\d,]+(?:\.\d{2})?|RM\s*[\d,]+(?:\.\d{2})?|[\d,]+(?:\.\d{2})?\s*Ringgit)",
         "Facility Purpose": r"(?:Facility Purpose|Purpose of Facility|Purpose)\s*[:\-]?\s*([A-Za-z0-9\s\-\/,\.]+)",
@@ -178,7 +188,6 @@ def extract_scope_fields(raw_text, doc_type="Credit Paper"):
         confidence = "70.0%"
         page_num = "Page 1"
 
-        # Search line by line for page tracking
         current_page = "Page 1"
         for line in lines:
             if "--- Page " in line:
@@ -192,7 +201,6 @@ def extract_scope_fields(raw_text, doc_type="Credit Paper"):
                 page_num = current_page
                 break
 
-        # Fallback full text match if not found line by line
         if found_val == "Not Specified in Document":
             match = re.search(regex, raw_text, re.IGNORECASE)
             if match:
@@ -210,11 +218,10 @@ def extract_scope_fields(raw_text, doc_type="Credit Paper"):
     return pd.DataFrame(extracted_records)
 
 
-# --- REASONING & RECONCILIATION LOGIC ENGINE ---
+# --- REASONING & RECONCILIATION ENGINE ---
 def run_reconciliation_logic(df1, df2):
     """
-    Compares Document 1 (Credit Paper) vs Document 2 (Letter of Offer).
-    Applies logic rules to identify Exception Codes 1-9.
+    Compares Document 1 (Credit Paper) vs Document 2 (Letter of Offer) and identifies exceptions.
     """
     if df1.empty or df2.empty:
         return pd.DataFrame()
@@ -224,40 +231,38 @@ def run_reconciliation_logic(df1, df2):
 
     reconciliation_results = []
 
-    # Scope Comparison Matrix & Exception Mapping Rules
     rules = [
-        ("Facility Amount", "Exception #1: Facility amount in LO differs from approved amount"),
-        ("Facility Purpose", "Exception #2: Facility purpose differs from approved purpose"),
-        ("Pricing / Profit Rate", "Exception #3: Pricing/Profit rate differs from approved rate"),
-        ("Facility Tenure", "Exception #4: Tenure differs from approved tenure"),
-        ("Special Conditions", "Exception #5: Approved special conditions omitted from LO"),
-        ("Customer Name", "Exception #8: Incorrect customer details in LO"),
-        ("Customer IC / Reg No", "Exception #8: Incorrect customer details in LO"),
-        ("Customer Registered Address", "Exception #8: Incorrect customer details in LO"),
-        ("Contact Details", "Exception #8: Incorrect customer details in LO"),
-        ("Letterhead Type", "Exception #9: Wrong letterhead used (Conventional/Islamic)"),
-        ("LO Issuance Date", "Exception #6: LO issued before Maker-Checker approval completed")
+        ("Facility Amount", "Exception 1: Facility amount in LO differs from approved amount"),
+        ("Facility Purpose", "Exception 2: Facility purpose differs from approved purpose"),
+        ("Pricing / Profit Rate", "Exception 3: Pricing/Profit rate differs from approved rate"),
+        ("Facility Tenure", "Exception 4: Tenure differs from approved tenure"),
+        ("Special Conditions", "Exception 5: Approved special conditions omitted from LO"),
+        ("Customer Name", "Exception 8: Incorrect customer details in LO"),
+        ("Customer IC / Reg No", "Exception 8: Incorrect customer details in LO"),
+        ("Customer Registered Address", "Exception 8: Incorrect customer details in LO"),
+        ("Contact Details", "Exception 8: Incorrect customer details in LO"),
+        ("Letterhead Type", "Exception 9: Wrong letterhead used (Conventional/Islamic)"),
+        ("LO Issuance Date", "Exception 6: LO issued before Maker-Checker approval completed")
     ]
 
     for field, exception_code in rules:
         val1 = str(map1.get(field, "Not Specified")).strip()
         val2 = str(map2.get(field, "Not Specified")).strip()
 
-        # Normalization
         norm1 = re.sub(r'[^\w\d]', '', val1.lower())
         norm2 = re.sub(r'[^\w\d]', '', val2.lower())
 
         if val1 == "Not Specified in Document" and val2 == "Not Specified in Document":
-            status = "⚠️ UNRESOLVED"
-            reason = "Field missing from both documents. Manual verification required."
+            status = "UNRESOLVED"
+            reason = "Field missing from source documents. Manual verification required."
             exc = "Data Missing"
         elif norm1 == norm2 or (norm1 in norm2 and len(norm1) > 3) or (norm2 in norm1 and len(norm2) > 3):
-            status = "✅ PASS / MATCH"
-            reason = f"Both documents align on '{field}'."
+            status = "PASS"
+            reason = f"Values in both documents align for '{field}'."
             exc = "None (Compliant)"
         else:
-            status = "❌ FAIL / DISCREPANCY"
-            reason = f"Mismatch detected! Credit Paper specifies '{val1}', but LO states '{val2}'."
+            status = "DISCREPANCY"
+            reason = f"Mismatch detected: Credit Paper states '{val1}', LO states '{val2}'."
             exc = exception_code
 
         reconciliation_results.append({
@@ -273,7 +278,7 @@ def run_reconciliation_logic(df1, df2):
 
 
 def generate_excel_export(df1, df2, recon_df):
-    """Generates clean Excel workbook containing extracted fields and audit report."""
+    """Generates Excel workbook containing extraction data and audit results."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         if not df1.empty:
@@ -294,30 +299,29 @@ with st.sidebar:
     
     st.markdown("""
         <div class="sidebar-header-box">
-            <div class="sidebar-title">AMBANK EVALUATION ENGINE</div>
-            <div class="sidebar-subtitle">Case 1: Credit Facilities Verification</div>
+            <div class="sidebar-title">CREDIT EVALUATION SYSTEM</div>
+            <div class="sidebar-subtitle">Case 1: Credit Facilities Control</div>
         </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("### 📄 Document Ingestion")
-    doc1_file = st.file_uploader("1. Approved Credit Paper", type=["pdf", "txt"], key="doc1")
-    doc2_file = st.file_uploader("2. Letter of Offer (LO)", type=["pdf", "txt"], key="doc2")
+    st.markdown("### Document Ingestion")
+    doc1_file = st.file_uploader("Approved Credit Paper", type=["pdf", "txt"], key="doc1")
+    doc2_file = st.file_uploader("Letter of Offer (LO)", type=["pdf", "txt"], key="doc2")
     
     st.markdown("---")
     
-    st.markdown("### ⚙️ System Controls")
-    process_btn = st.button("⚡ Run Audit & Reconciliation Engine")
+    process_btn = st.button("Execute Audit & Extraction")
     
     st.markdown("---")
-    st.caption("🔒 **Security**: Local Enterprise Sandbox")
-    st.caption("🟢 **Rule Engine**: Active (Exceptions 1–9 Filter Enabled)")
+    st.caption("Security: Enterprise Local Processing Environment")
+    st.caption("Status: Rules Engine Ready")
 
 
 # --- MAIN INTERFACE ---
-st.title("🏦 Credit Facilities Verification Portal")
-st.caption("Automated Maker-Checker assistance for identifying discrepancies between Approved Credit Papers and Issued Letters of Offer.")
+st.title("Credit Facilities Control & Audit Portal")
+st.caption("Automated Maker-Checker review system for detecting control exceptions between Approved Credit Papers and Issued Letters of Offer.")
 
-# DYNAMIC DATA EXTRACTION & STATE
+# PROCESSING & STATE MANAGEMENT
 text1 = read_file_text(doc1_file) if doc1_file else ""
 text2 = read_file_text(doc2_file) if doc2_file else ""
 
@@ -326,21 +330,21 @@ df2 = extract_scope_fields(text2, "Letter of Offer") if text2 else pd.DataFrame(
 
 recon_df = run_reconciliation_logic(df1, df2)
 
-# TOP METRICS DASHBOARD
+# EXECUTIVE METRICS
 m1, m2, m3, m4 = st.columns(4)
 
 total_checks = len(recon_df)
-pass_count = len(recon_df[recon_df["Audit Status"] == "✅ PASS / MATCH"]) if not recon_df.empty else 0
-fail_count = len(recon_df[recon_df["Audit Status"] == "❌ FAIL / DISCREPANCY"]) if not recon_df.empty else 0
+pass_count = len(recon_df[recon_df["Audit Status"] == "PASS"]) if not recon_df.empty else 0
+fail_count = len(recon_df[recon_df["Audit Status"] == "DISCREPANCY"]) if not recon_df.empty else 0
 
 with m1:
-    st.metric("Processed Scope Fields", f"{total_checks} Required Items")
+    st.metric("Total Scope Items", f"{total_checks}")
 with m2:
-    st.metric("Compliant Matches", f"{pass_count} Passed", delta=f"{pass_count} Matched" if pass_count > 0 else None)
+    st.metric("Compliant Matches", f"{pass_count}")
 with m3:
-    st.metric("Control Exceptions Identified", f"{fail_count} Exceptions", delta=f"-{fail_count} Discrepancies" if fail_count > 0 else "0 Violations", delta_color="inverse")
+    st.metric("Discrepancies Identified", f"{fail_count}")
 with m4:
-    st.metric("Maker-Checker Verdict", "PASSED" if fail_count == 0 and total_checks > 0 else ("REJECT / REVIEW" if fail_count > 0 else "AWAITING DOCUMENTS"))
+    st.metric("Audit Conclusion", "PASSED" if fail_count == 0 and total_checks > 0 else ("REQUIRES REVIEW" if fail_count > 0 else "PENDING DOCUMENTS"))
 
 st.write("")
 
@@ -348,28 +352,28 @@ st.write("")
 if not recon_df.empty:
     excel_file = generate_excel_export(df1, df2, recon_df)
     st.download_button(
-        label="📊 Export Full Audit Workbook to Excel (.xlsx)",
+        label="Export Audit Workbook (.xlsx)",
         data=excel_file,
         file_name="Credit_Facilities_Audit_Report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 # WORKSPACE TABS
-tab_quad, tab_audit = st.tabs(["🧩 4-Way Extraction Workspace", "⚖️ Detailed Exception Audit Engine"])
+tab_quad, tab_audit = st.tabs(["Extraction Workspace (4-Way View)", "Reconciliation Audit Engine"])
 
 # -------------------------------------------------------------------
 # TAB 1: 4-WAY SPLIT WORKSPACE
 # -------------------------------------------------------------------
 with tab_quad:
-    # TOP ROW: PDF/DOCUMENT VIEWERS
+    # TOP ROW: DOCUMENT VIEWERS
     top_c1, top_c2 = st.columns(2)
 
     with top_c1:
         st.markdown("""
             <div class="quad-card">
                 <div class="card-title">
-                    <span>📑 Document 1: Approved Credit Paper</span>
-                    <span style="font-size: 0.75rem; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 10px;">Top-Left View</span>
+                    <span>Approved Credit Paper</span>
+                    <span style="font-size: 0.72rem; color: #64748b;">Primary Reference</span>
                 </div>
         """, unsafe_allow_html=True)
         
@@ -378,11 +382,11 @@ with tab_quad:
             if embed_code:
                 st.markdown(embed_code, unsafe_allow_html=True)
             else:
-                st.success(f"Loaded: **{doc1_file.name}** ({len(text1)} characters extracted)")
+                st.info(f"Loaded File: {doc1_file.name}")
         else:
             st.markdown("""
                 <div class="empty-viewer">
-                    <span>📌 Upload the Approved Credit Paper in the sidebar to display document preview</span>
+                    <span>Upload the Approved Credit Paper in the sidebar to view document preview</span>
                 </div>
             """, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -391,8 +395,8 @@ with tab_quad:
         st.markdown("""
             <div class="quad-card">
                 <div class="card-title">
-                    <span>📑 Document 2: Issued Letter of Offer (LO)</span>
-                    <span style="font-size: 0.75rem; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 10px;">Top-Right View</span>
+                    <span>Letter of Offer (LO)</span>
+                    <span style="font-size: 0.72rem; color: #64748b;">Customer Document</span>
                 </div>
         """, unsafe_allow_html=True)
         
@@ -401,11 +405,11 @@ with tab_quad:
             if embed_code:
                 st.markdown(embed_code, unsafe_allow_html=True)
             else:
-                st.success(f"Loaded: **{doc2_file.name}** ({len(text2)} characters extracted)")
+                st.info(f"Loaded File: {doc2_file.name}")
         else:
             st.markdown("""
                 <div class="empty-viewer">
-                    <span>📌 Upload the Letter of Offer (LO) in the sidebar to display document preview</span>
+                    <span>Upload the Letter of Offer in the sidebar to view document preview</span>
                 </div>
             """, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -417,8 +421,7 @@ with tab_quad:
         st.markdown("""
             <div class="quad-card">
                 <div class="card-title">
-                    <span>🔍 Credit Paper: Scope Extraction</span>
-                    <span style="font-size: 0.75rem; color: #64748b;">Bottom-Left View</span>
+                    <span>Credit Paper Data Extraction</span>
                 </div>
         """, unsafe_allow_html=True)
         
@@ -427,24 +430,23 @@ with tab_quad:
                 df1,
                 column_config={
                     "Scope Field": st.column_config.TextColumn("Scope Item", width="medium"),
-                    "Extracted Value": st.column_config.TextColumn("Extracted Text Value", width="large"),
+                    "Extracted Value": st.column_config.TextColumn("Extracted Value", width="large"),
                     "Confidence": st.column_config.TextColumn("Confidence", width="small"),
-                    "Page Index": st.column_config.TextColumn("Page", width="small"),
+                    "Page Index": st.column_config.TextColumn("Source Page", width="small"),
                 },
                 use_container_width=True,
                 hide_index=True,
                 height=320
             )
         else:
-            st.info("No document uploaded. Upload Approved Credit Paper to parse scope fields.")
+            st.info("Upload Document 1 to display extracted scope fields.")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with bot_c2:
         st.markdown("""
             <div class="quad-card">
                 <div class="card-title">
-                    <span>🔍 Letter of Offer: Scope Extraction</span>
-                    <span style="font-size: 0.75rem; color: #64748b;">Bottom-Right View</span>
+                    <span>Letter of Offer Data Extraction</span>
                 </div>
         """, unsafe_allow_html=True)
         
@@ -453,16 +455,16 @@ with tab_quad:
                 df2,
                 column_config={
                     "Scope Field": st.column_config.TextColumn("Scope Item", width="medium"),
-                    "Extracted Value": st.column_config.TextColumn("Extracted Text Value", width="large"),
+                    "Extracted Value": st.column_config.TextColumn("Extracted Value", width="large"),
                     "Confidence": st.column_config.TextColumn("Confidence", width="small"),
-                    "Page Index": st.column_config.TextColumn("Page", width="small"),
+                    "Page Index": st.column_config.TextColumn("Source Page", width="small"),
                 },
                 use_container_width=True,
                 hide_index=True,
                 height=320
             )
         else:
-            st.info("No document uploaded. Upload Letter of Offer (LO) to parse scope fields.")
+            st.info("Upload Document 2 to display extracted scope fields.")
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -473,7 +475,7 @@ with tab_audit:
     st.markdown("""
         <div class="quad-card">
             <div class="card-title">
-                <span>⚖️ Maker-Checker Reconciliation & Exception Mapping Report</span>
+                <span>Reconciliation Audit & Exception Mapping Report</span>
             </div>
     """, unsafe_allow_html=True)
     
@@ -481,17 +483,17 @@ with tab_audit:
         st.dataframe(
             recon_df,
             column_config={
-                "Scope Field": st.column_config.TextColumn("Required Scope Item", width="medium"),
+                "Scope Field": st.column_config.TextColumn("Scope Item", width="medium"),
                 "Approved Credit Paper": st.column_config.TextColumn("Approved Credit Paper", width="medium"),
                 "Letter of Offer (LO)": st.column_config.TextColumn("Letter of Offer (LO)", width="medium"),
-                "Audit Status": st.column_config.TextColumn("Status", width="small"),
-                "Mapped Exception Rule": st.column_config.TextColumn("Mapped Scope Exception", width="large"),
+                "Audit Status": st.column_config.TextColumn("Audit Status", width="small"),
+                "Mapped Exception Rule": st.column_config.TextColumn("Mapped Exception Code", width="large"),
                 "Reasoning Details": st.column_config.TextColumn("Automated Reasoning", width="large"),
             },
             use_container_width=True,
             hide_index=True
         )
     else:
-        st.warning("Please upload both the Approved Credit Paper and Letter of Offer to trigger the reconciliation audit engine.")
+        st.warning("Upload both documents in the sidebar to execute the reconciliation audit.")
     
     st.markdown("</div>", unsafe_allow_html=True)

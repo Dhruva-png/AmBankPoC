@@ -96,10 +96,10 @@ Return strict JSON only, using false/[]/"" for anything not visible on this page
 
 def extract_email_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
-    doc_source = f"{doc_name} (Groq vision, all pages)"
+    doc_source = f"{doc_name} (AI vision, all pages)"
     if not groq_client.is_configured():
         return {
-            "source_file": str(path), "error": "Groq not configured",
+            "source_file": str(path), "error": "AI engine not configured",
             "has_rejection_cycle": None, "has_final_confirmation": None,
             "participants": [], "customer_name": "", "sources": {},
         }
@@ -149,15 +149,15 @@ def _vision_extract(image_path: str, prompt: str, max_tokens: int = 500) -> dict
 def extract_ssm_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not groq_client.is_configured():
-        return {"source_file": str(path), "error": "Groq not configured", "sources": {}}
+        return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
     pages = _render_for_vision(path, render_dir)
     corporate = _vision_extract(pages[0], _SSM_PAGE1_PROMPT) if pages else {}
     directors = {}
     if len(pages) >= 3:
         directors = _vision_extract(pages[2], _SSM_DIRECTORS_PROMPT, max_tokens=900)
 
-    doc_source_p1 = f"{doc_name} (page 1, Groq vision)"
-    doc_source_p3 = f"{doc_name} (page 3, Groq vision)"
+    doc_source_p1 = f"{doc_name} (page 1, AI vision)"
+    doc_source_p3 = f"{doc_name} (page 3, AI vision)"
     return {
         "source_file": str(path),
         "name": corporate.get("name", ""),
@@ -178,10 +178,10 @@ def extract_ssm_fields(path: str, render_dir: str) -> dict:
 def extract_ccris_application_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not groq_client.is_configured():
-        return {"source_file": str(path), "error": "Groq not configured", "sources": {}}
+        return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
     pages = _render_for_vision(path, render_dir)
     data = _vision_extract(pages[0], _CCRIS_APP_PROMPT) if pages else {}
-    doc_source = f"{doc_name} (page 1, Groq vision)"
+    doc_source = f"{doc_name} (page 1, AI vision)"
     return {
         "source_file": str(path),
         "facility_1_amount_applied": data.get("facility_1_amount_applied", ""),
@@ -198,15 +198,15 @@ def extract_ccris_application_fields(path: str, render_dir: str) -> dict:
 def extract_guarantor_application_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not groq_client.is_configured():
-        return {"source_file": str(path), "error": "Groq not configured", "guarantors": [], "sources": {}}
+        return {"source_file": str(path), "error": "AI engine not configured", "guarantors": [], "sources": {}}
     pages = _render_for_vision(path, render_dir)
     guarantors = []
     for i, page in enumerate(pages, start=1):
         data = _vision_extract(page, _GUARANTOR_APP_PROMPT)
-        data["_source"] = f"{doc_name} (page {i}, Groq vision)"
+        data["_source"] = f"{doc_name} (page {i}, AI vision)"
         guarantors.append(data)
     return {
         "source_file": str(path),
         "guarantors": guarantors,
-        "sources": {"guarantors": f"{doc_name} (Groq vision, all pages)"},
+        "sources": {"guarantors": f"{doc_name} (AI vision, all pages)"},
     }

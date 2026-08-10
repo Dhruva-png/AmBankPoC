@@ -39,7 +39,7 @@ def init_db() -> None:
                 processing_seconds REAL,
                 remarks TEXT,
                 results_json TEXT NOT NULL,
-                extracted_json TEXT
+                markdown_report TEXT
             )
             """
         )
@@ -58,7 +58,7 @@ def save_case(
     results: list[CheckResult],
     processing_seconds: float,
     remarks: str,
-    extracted: dict | None = None,
+    markdown_report: str = "",
 ) -> str:
     init_db()
     case_id = new_case_id(case_type)
@@ -72,7 +72,7 @@ def save_case(
             INSERT INTO cases (
                 case_id, case_type, created_at, documents,
                 pass_count, fail_count, review_count, na_count, flagged,
-                processing_seconds, remarks, results_json, extracted_json
+                processing_seconds, remarks, results_json, markdown_report
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -88,7 +88,7 @@ def save_case(
                 processing_seconds,
                 remarks,
                 json.dumps([asdict(r) for r in results], ensure_ascii=False, default=str),
-                json.dumps(extracted, ensure_ascii=False, default=str) if extracted is not None else None,
+                markdown_report,
             ),
         )
     return case_id
@@ -116,5 +116,4 @@ def get_case(case_id: str) -> dict | None:
     record = dict(row)
     record["documents"] = json.loads(record["documents"])
     record["results"] = [CheckResult(**d) for d in json.loads(record["results_json"])]
-    record["extracted"] = json.loads(record["extracted_json"]) if record.get("extracted_json") else None
     return record

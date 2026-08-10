@@ -51,18 +51,15 @@ def _groq_match(field: str, source_a: str, value_a: str, source_b: str, value_b:
     if _norm(value_a) == _norm(value_b):
         return PASS, 100.0, "Values are identical."
     if not groq_client.is_configured():
-        return REVIEW, None, (
-            f"'{field}' differs between sources and Groq is not configured (set "
-            "GROQ_API_KEY_1 in .env) so this cannot be auto-judged."
-        )
+        return REVIEW, None, f"'{field}' differs between sources and the AI engine is unavailable to auto-judge this."
     try:
         result = groq_client.chat_json(
             _MATCH_PROMPT.format(field=field, source_a=source_a, value_a=value_a, source_b=source_b, value_b=value_b, context=context)
         )
         status = PASS if result.get("match") else FAIL
         return status, float(result.get("confidence", 50)), result.get("reasoning", "")
-    except Exception as exc:
-        return REVIEW, None, f"Groq call failed ({exc}); confirm manually."
+    except Exception:
+        return REVIEW, None, "AI engine call failed; confirm manually."
 
 
 def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: dict) -> list[CheckResult]:
@@ -188,7 +185,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
     if email.get("has_final_confirmation") and len(email.get("participants", [])) >= 2:
         status, confidence, note = PASS, 100.0, "Email thread shows a maker/checker exchange ending in a final confirmation."
     elif email.get("error"):
-        status, confidence, note = REVIEW, None, "Groq not configured -- could not analyze the email thread."
+        status, confidence, note = REVIEW, None, "AI engine unavailable -- could not analyze the email thread."
     else:
         status, confidence, note = REVIEW, None, "Email thread does not clearly show both a maker and a checker plus a final confirmation -- confirm manually."
     results.append(CheckResult(
@@ -211,7 +208,7 @@ def to_markdown(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_ap
         f"- SSM search: `{ssm['source_file']}`",
         f"- CCRIS application form: `{ccris_app['source_file']}`",
         f"- Guarantor application form: `{guarantor_app['source_file']}`",
-        f"- Semantic checks: {'Groq-assisted' if groq_client.is_configured() else 'Groq not configured — text-diff heuristic only'}",
+        f"- Semantic checks: {'AI-assisted' if groq_client.is_configured() else 'AI engine unavailable — text-diff heuristic only'}",
         "",
     ]
     return "\n".join(header) + "\n" + to_markdown_table(results, "Value A", "Value B")

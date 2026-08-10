@@ -66,9 +66,9 @@ def status() -> list[KeyStatus]:
     results = []
     for i, key in enumerate(keys, start=1):
         online, error = check_key(key)
-        results.append(KeyStatus(label=f"Key {i}", configured=True, online=online, error=error))
+        results.append(KeyStatus(label=f"Engine {i}", configured=True, online=online, error=error))
     if not results:
-        results.append(KeyStatus(label="Key 1", configured=False, online=False, error="GROQ_API_KEY_1 not set"))
+        results.append(KeyStatus(label="Engine 1", configured=False, online=False, error="not configured"))
     return results
 
 
@@ -102,10 +102,7 @@ def _extract_json(text: str) -> dict:
 def _post(model: str, body: dict, max_cycles: int = 3) -> dict:
     keys = _keys()
     if not keys:
-        raise GroqError(
-            "No Groq API key configured. Set GROQ_API_KEY_1 (and optionally "
-            "GROQ_API_KEY_2) in .env -- see .env.example."
-        )
+        raise GroqError("AI engine is not configured for this environment.")
 
     last_error: Exception | None = None
     for cycle in range(max_cycles):
@@ -116,7 +113,7 @@ def _post(model: str, body: dict, max_cycles: int = 3) -> dict:
                 resp = requests.post(CHAT_URL, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
                 if resp.status_code == 429:
                     retry_after = float(resp.headers.get("Retry-After", 10))
-                    last_error = GroqError(f"rate limited (429), retry-after={retry_after}s")
+                    last_error = GroqError("AI engine is temporarily at capacity, retrying.")
                     rate_limited_wait = max(rate_limited_wait, retry_after)
                     continue
                 resp.raise_for_status()
@@ -127,14 +124,14 @@ def _post(model: str, body: dict, max_cycles: int = 3) -> dict:
                     detail = resp.json().get("error", {}).get("message", "")
                 except Exception:
                     pass
-                last_error = GroqError(f"{exc} {detail}")
+                last_error = GroqError(f"AI engine request failed ({resp.status_code}). {detail}".strip())
                 if resp.status_code in (400, 401, 403):
                     raise last_error
-            except requests.exceptions.RequestException as exc:
-                last_error = exc
+            except requests.exceptions.RequestException:
+                last_error = GroqError("AI engine is temporarily unreachable.")
         if rate_limited_wait and cycle < max_cycles - 1:
             time.sleep(min(rate_limited_wait, 30) + 1)
-    raise GroqError(f"All configured Groq keys failed. Last error: {last_error}")
+    raise GroqError(f"AI engine is currently unavailable. {last_error}")
 
 
 def chat_json(prompt: str, model: str = TEXT_MODEL, max_tokens: int = 800, temperature: float = 0.0) -> dict:

@@ -1,10 +1,30 @@
 [theme]
 base = "light"
-primaryColor = "#C9A227"
-backgroundColor = "#F5F6F8"
-secondaryBackgroundColor = "#FFFFFF"
+primaryColor = "#2451D6"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f5f6f8"
 textColor = "#101828"
-font = "sans serif"
+borderColor = "#e1e5ea"
+linkColor = "#2451D6"
+baseRadius = "10px"
+buttonRadius = "8px"
+showWidgetBorder = true
+font = "'Segoe UI', Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "'Segoe UI', Inter:https://fonts.googleapis.com/css2?family=Inter:wght@600;700&display=swap"
+
+greenColor = "#16a34a"
+redColor = "#dc2626"
+orangeColor = "#d97706"
+grayColor = "#64748b"
+
+chartCategoricalColors = ["#2451D6", "#146C3A", "#91600A", "#B3261E", "#64748b", "#7C3AED", "#0284c7"]
+
+[theme.sidebar]
+backgroundColor = "#101728"
+secondaryBackgroundColor = "#182238"
+textColor = "#ffffff"
+borderColor = "#101728"
+primaryColor = "#5B9BFF"
 
 [server]
 headless = true

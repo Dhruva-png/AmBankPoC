@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+import json
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+import case_store
 from check_result import CheckResult
 
 HEADER_FILL = PatternFill(start_color="12161F", end_color="12161F", fill_type="solid")
@@ -82,7 +84,6 @@ def _full_report_sheet(
         ("Processing Time", case_meta.get("processing_time", "")),
         ("Documents", case_meta.get("documents", "")),
         ("Overall Status", case_meta.get("overall_status", "")),
-        ("AI Engine", case_meta.get("ai_engine", "")),
     ]
     for label, value in meta_fields:
         ws.cell(row=row, column=1, value=label).font = LABEL_FONT
@@ -145,6 +146,57 @@ def build_workbook(
     wb.remove(wb.active)
     _full_report_sheet(wb, case_meta, results, remarks, left_label, right_label)
     _line_items_sheet(wb, results, left_label, right_label)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def build_consolidated_workbook(case_type: str, module_name: str) -> bytes:
+    df = case_store.list_cases(case_type)
+    wb = Workbook()
+    wb.properties.title = f"{module_name} Cases"
+    ws = wb.active
+    ws.title = "Cases"
+    headers = ["Case ID", "Processed At", "Status", "Pass", "Fail", "Review", "N/A", "Processing Time (s)", "Remarks"]
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+    ws.freeze_panes = "A2"
+    for _, row in df.iterrows():
+        ws.append([
+            row["case_id"], row["created_at"], "FLAGGED" if row["flagged"] else "CLEAR",
+            row["pass_count"], row["fail_count"], row["review_count"], row["na_count"],
+            row["processing_seconds"], row["remarks"],
+        ])
+        status_cell = ws.cell(row=ws.max_row, column=3)
+        status_cell.fill = STATUS_FILL["FAIL" if row["flagged"] else "PASS"]
+        status_cell.font = STATUS_FONT["FAIL" if row["flagged"] else "PASS"]
+        ws.cell(row=ws.max_row, column=9).alignment = WRAP
+    _autosize(ws, {1: 22, 2: 20, 3: 12, 4: 8, 5: 8, 6: 8, 7: 8, 8: 16, 9: 60})
+
+    ws2 = wb.create_sheet("All Line Items")
+    headers2 = ["Case ID", "KCT", "Check", "Status", "Confidence", "Note"]
+    ws2.append(headers2)
+    for col in range(1, len(headers2) + 1):
+        cell = ws2.cell(row=1, column=col)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+    ws2.freeze_panes = "A2"
+    for _, row in df.iterrows():
+        for r in json.loads(row["results_json"]):
+            ws2.append([
+                row["case_id"], r.get("kct"), r.get("check"), r.get("status"),
+                f"{r['confidence']:.0f}%" if r.get("confidence") is not None else "",
+                r.get("note"),
+            ])
+            status_cell = ws2.cell(row=ws2.max_row, column=4)
+            status_cell.fill = STATUS_FILL.get(r.get("status"), STATUS_FILL["N/A"])
+            status_cell.font = STATUS_FONT.get(r.get("status"), STATUS_FONT["N/A"])
+            ws2.cell(row=ws2.max_row, column=6).alignment = WRAP
+    _autosize(ws2, {1: 22, 2: 14, 3: 34, 4: 10, 5: 12, 6: 48})
+
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

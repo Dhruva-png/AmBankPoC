@@ -71,9 +71,9 @@ def _groq_purpose_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
         return PASS, 100.0, "Purpose wording is identical."
     if not groq_client.is_configured():
         return REVIEW, None, (
-            "Purpose wording differs from the Credit Paper's on-file purpose. Groq is not "
-            "configured (set GROQ_API_KEY_1 in .env) so this cannot be auto-judged -- "
-            "confirm manually against the CP's approved revised-purpose text."
+            "Purpose wording differs from the Credit Paper's on-file purpose. The AI engine "
+            "is unavailable to auto-judge this -- confirm manually against the CP's approved "
+            "revised-purpose text."
         )
     try:
         result = groq_client.chat_json(
@@ -85,8 +85,8 @@ def _groq_purpose_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
         )
         status = PASS if result.get("consistent") else FAIL
         return status, float(result.get("confidence", 50)), result.get("reasoning", "")
-    except Exception as exc:
-        return REVIEW, None, f"Groq call failed ({exc}); confirm manually."
+    except Exception:
+        return REVIEW, None, "AI engine call failed; confirm manually."
 
 
 def _groq_special_conditions_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
@@ -98,8 +98,8 @@ def _groq_special_conditions_check(cp: dict, lo: dict) -> tuple[str, float | Non
         return PASS, 100.0, "Special condition text appears verbatim in the LO."
     if not groq_client.is_configured():
         return REVIEW, None, (
-            "Approved special condition is not repeated verbatim in this LO. Groq is not "
-            "configured (set GROQ_API_KEY_1 in .env) so this cannot be auto-judged."
+            "Approved special condition is not repeated verbatim in this LO, and the AI "
+            "engine is unavailable to auto-judge whether it still applies."
         )
     try:
         result = groq_client.chat_json(
@@ -107,8 +107,8 @@ def _groq_special_conditions_check(cp: dict, lo: dict) -> tuple[str, float | Non
         )
         status = PASS if result.get("reflected") else REVIEW
         return status, float(result.get("confidence", 50)), result.get("reasoning", "")
-    except Exception as exc:
-        return REVIEW, None, f"Groq call failed ({exc}); confirm manually."
+    except Exception:
+        return REVIEW, None, "AI engine call failed; confirm manually."
 
 
 def compare(cp: dict, lo: dict) -> list[CheckResult]:
@@ -252,7 +252,7 @@ def to_markdown(cp: dict, lo: dict, results: list[CheckResult]) -> str:
         "",
         f"- Credit Paper: `{cp['source_file']}`",
         f"- Letter of Offer: `{lo['source_file']}`",
-        f"- Semantic checks (purpose, special conditions): {'Groq-assisted' if groq_client.is_configured() else 'Groq not configured — text-diff heuristic only'}",
+        f"- Semantic checks (purpose, special conditions): {'AI-assisted' if groq_client.is_configured() else 'AI engine unavailable — text-diff heuristic only'}",
         "",
     ]
     return "\n".join(header) + "\n" + to_markdown_table(results, "Credit Paper", "Letter of Offer")

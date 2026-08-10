@@ -71,6 +71,18 @@ def render_pdf_pages_to_images(path: str, out_dir: str, scale: float = 2.0) -> l
     return out_paths
 
 
+def render_pdf_first_page(path: str, out_dir: str, scale: float = 1.3) -> str:
+    import pypdfium2 as pdfium
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    stem = Path(path).stem
+    pdf = pdfium.PdfDocument(path)
+    bitmap = pdf[0].render(scale=scale)
+    out_path = str(Path(out_dir) / f"{stem}_classify.png")
+    bitmap.to_pil().save(out_path)
+    return out_path
+
+
 def extract_text(path: str) -> str:
     suffix = Path(path).suffix.lower()
     if suffix == ".docx":

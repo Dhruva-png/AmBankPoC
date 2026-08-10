@@ -2,6 +2,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 import case_store
@@ -9,6 +10,7 @@ import groq_client
 import shared_pages
 from compare import compare, to_markdown
 from extract_fields import (
+    classify_document,
     extract_ccris_application_fields,
     extract_cls_fields,
     extract_email_fields,
@@ -30,6 +32,7 @@ DOC_LABELS = {
     "cls": "CLS Extract", "email": "Email Request", "ssm": "SSM Search",
     "ccris_app": "CCRIS Application Form", "guarantor_app": "Guarantor Application Form",
 }
+CATEGORY_LABELS = {**DOC_LABELS, "unknown": "Unclassified"}
 
 
 def _save_upload(uploaded_file, suffix: str) -> str:
@@ -64,7 +67,7 @@ if case_id:
     )
     st.stop()
 
-st.caption("New case · upload the five CIF-creation documents, then run control testing.")
+st.caption("New case · upload the five CIF-creation documents in any order — the system classifies each one automatically.")
 if st.button("← Back to cases", type="tertiary"):
     st.switch_page("app_pages/cases.py")
 
@@ -78,21 +81,57 @@ if use_sample:
     else:
         st.warning("Sample files not found in samples/case-2-account-opening/xyz-sdn-bhd/.")
 else:
-    col1, col2 = st.columns(2)
-    with col1:
-        cls_upload = st.file_uploader("CLS Extract (.pdf)", type=["pdf"])
-        ssm_upload = st.file_uploader("SSM Search (.pdf)", type=["pdf"])
-        ccris_upload = st.file_uploader("CCRIS Application Form (.pdf)", type=["pdf"])
-    with col2:
-        guarantor_upload = st.file_uploader("Guarantor Application Form (.pdf)", type=["pdf"])
-        email_upload = st.file_uploader("Email Request (.pdf)", type=["pdf"])
-    uploads = {
-        "cls": cls_upload, "ssm": ssm_upload, "ccris_app": ccris_upload,
-        "guarantor_app": guarantor_upload, "email": email_upload,
-    }
-    for key, upload in uploads.items():
-        if upload:
-            paths[key] = _save_upload(upload, ".pdf")
+    uploads = st.file_uploader(
+        "Upload documents (CLS Extract, Email Request, SSM Search, CCRIS Application Form, Guarantor Application Form)",
+        type=["pdf"],
+        accept_multiple_files=True,
+    )
+    if uploads:
+        signature = tuple((f.name, f.size) for f in uploads)
+        if st.session_state.get("case2_classify_sig") != signature:
+            render_dir = tempfile.mkdtemp(prefix="case2_classify_")
+            saved = [(_save_upload(f, ".pdf"), f.name) for f in uploads]
+            with st.spinner("Classifying uploaded documents..."):
+                classified = []
+                for path, name in saved:
+                    try:
+                        category = classify_document(path, render_dir)
+                    except Exception:
+                        category = "unknown"
+                    classified.append({"path": path, "name": name, "category": category})
+            st.session_state["case2_classify_sig"] = signature
+            st.session_state["case2_classify_result"] = classified
+        classified = st.session_state["case2_classify_result"]
+
+        display_df = pd.DataFrame(
+            [{"File": c["name"], "Classified type": CATEGORY_LABELS.get(c["category"], "Unclassified")} for c in classified]
+        )
+        st.caption("Review the automatic classification and correct it if needed, then run control testing.")
+        edited = st.data_editor(
+            display_df,
+            hide_index=True,
+            width="stretch",
+            disabled=["File"],
+            column_config={
+                "Classified type": st.column_config.SelectboxColumn(
+                    options=list(DOC_LABELS.values()) + ["Unclassified"], required=True
+                )
+            },
+            key="case2_classify_editor",
+        )
+
+        counts = edited["Classified type"].value_counts().to_dict()
+        problems = [label for label in DOC_LABELS.values() if counts.get(label, 0) != 1]
+        if problems:
+            st.warning(f"Each document type must appear exactly once. Please correct: {', '.join(problems)}.")
+        else:
+            label_to_key = {v: k for k, v in DOC_LABELS.items()}
+            path_by_file = {c["name"]: c["path"] for c in classified}
+            role_by_file = dict(zip(edited["File"], edited["Classified type"]))
+            for name, role in role_by_file.items():
+                key = label_to_key.get(role)
+                if key:
+                    paths[key] = path_by_file[name]
 
 if len(paths) < 5:
     st.info("Provide all five documents (or use the reference sample) to run control testing.", icon=":material/info:")

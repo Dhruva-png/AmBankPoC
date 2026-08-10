@@ -5,14 +5,48 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
-from extract_text import extract_text, render_pdf_pages_to_images  # noqa: E402
+from extract_text import extract_text, render_pdf_first_page, render_pdf_pages_to_images  # noqa: E402
+from classify import classify_image  # noqa: E402
 import groq_client  # noqa: E402
 
 VISION_SCALE = 1.3
 
+CATEGORIES = {
+    "cls": (
+        "CLS core-banking screen extract -- a system printout with fields like 'Customer name', "
+        "'ID(BIZ REG) No', 'CIF number', 'Application No', address inquiry blocks, and a "
+        "Guarantor list."
+    ),
+    "email": (
+        "Scanned email thread requesting CCRIS/CIF creation, showing email headers "
+        "(From/To/Subject) and message bodies between a maker and a checker."
+    ),
+    "ssm": (
+        "SSM (Companies Commission of Malaysia) company search result -- an official company "
+        "profile with company name, registration number, incorporation date, registered "
+        "address, and a directors/officers list."
+    ),
+    "ccris_app": (
+        "New CCRIS Enhancement application form -- a bank form with a 'Facility Details' "
+        "section and an 'AMOUNT APPLIED' field written as individual digit boxes."
+    ),
+    "guarantor_app": (
+        "Guarantor Input Form -- a bank form capturing a guarantor's name, registered address, "
+        "business registration or NRIC number, and relationship to the applicant."
+    ),
+}
+
 
 def _render_for_vision(path: str, render_dir: str) -> list[str]:
     return render_pdf_pages_to_images(path, render_dir, scale=VISION_SCALE)
+
+
+def classify_document(path: str, render_dir: str) -> str:
+    try:
+        page_image = render_pdf_first_page(path, render_dir, scale=VISION_SCALE)
+    except Exception:
+        return "unknown"
+    return classify_image(page_image, CATEGORIES)
 
 
 def extract_cls_fields(path: str) -> dict:

@@ -6,6 +6,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 from extract_text import extract_text  # noqa: E402
+from classify import classify_text  # noqa: E402
+
+CATEGORIES = {
+    "credit_paper": (
+        "Approved Credit Paper -- an internal bank memo containing a 'Principal Terms and "
+        "Conditions' table (Customer, Facility Type, Purpose, Security, Covenants & Special "
+        "Conditions) and a facility limits table."
+    ),
+    "letter_of_offer": (
+        "Letter of Offer -- a letter addressed to the customer with a 'FACILITY OF RM...' "
+        "heading, a 'PURPOSE OF THE FACILITY' clause, and signed for and on behalf of the bank."
+    ),
+}
+
+
+def classify_document(path: str) -> str:
+    try:
+        text = extract_text(path)
+    except Exception:
+        return "unknown"
+    return classify_text(text, CATEGORIES)
 
 
 def _find_principal_terms_table(doc):

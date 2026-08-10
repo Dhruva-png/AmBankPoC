@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+import uuid
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+
+from check_result import CheckResult
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DB_PATH = REPO_ROOT / "data" / "kct_cases.db"
+
+_PREFIX = {"case1": "CF", "case2": "AO"}
+
+
+def _connect() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(str(DB_PATH))
+
+
+def init_db() -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cases (
+                case_id TEXT PRIMARY KEY,
+                case_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                documents TEXT NOT NULL,
+                pass_count INTEGER NOT NULL,
+                fail_count INTEGER NOT NULL,
+                review_count INTEGER NOT NULL,
+                na_count INTEGER NOT NULL,
+                flagged INTEGER NOT NULL,
+                processing_seconds REAL,
+                remarks TEXT,
+                results_json TEXT NOT NULL,
+                extracted_json TEXT
+            )
+            """
+        )
+
+
+def new_case_id(case_type: str) -> str:
+    prefix = _PREFIX.get(case_type, "KC")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    suffix = uuid.uuid4().hex[:4].upper()
+    return f"{prefix}-{stamp}-{suffix}"
+
+
+def save_case(
+    case_type: str,
+    documents: list[dict],
+    results: list[CheckResult],
+    processing_seconds: float,
+    remarks: str,
+    extracted: dict | None = None,
+) -> str:
+    init_db()
+    case_id = new_case_id(case_type)
+    counts = {s: 0 for s in ("PASS", "FAIL", "REVIEW", "N/A")}
+    for r in results:
+        counts[r.status] = counts.get(r.status, 0) + 1
+    flagged = 1 if (counts["FAIL"] > 0 or counts["REVIEW"] > 0) else 0
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO cases (
+                case_id, case_type, created_at, documents,
+                pass_count, fail_count, review_count, na_count, flagged,
+                processing_seconds, remarks, results_json, extracted_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                case_id,
+                case_type,
+                datetime.now().isoformat(timespec="seconds"),
+                json.dumps(documents, ensure_ascii=False),
+                counts["PASS"],
+                counts["FAIL"],
+                counts["REVIEW"],
+                counts["N/A"],
+                flagged,
+                processing_seconds,
+                remarks,
+                json.dumps([asdict(r) for r in results], ensure_ascii=False, default=str),
+                json.dumps(extracted, ensure_ascii=False, default=str) if extracted is not None else None,
+            ),
+        )
+    return case_id
+
+
+def list_cases(case_type: str | None = None) -> pd.DataFrame:
+    init_db()
+    with _connect() as conn:
+        if case_type:
+            df = pd.read_sql_query(
+                "SELECT * FROM cases WHERE case_type = ? ORDER BY created_at DESC", conn, params=(case_type,)
+            )
+        else:
+            df = pd.read_sql_query("SELECT * FROM cases ORDER BY created_at DESC", conn)
+    return df
+
+
+def get_case(case_id: str) -> dict | None:
+    init_db()
+    with _connect() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+    if not row:
+        return None
+    record = dict(row)
+    record["documents"] = json.loads(record["documents"])
+    record["results"] = [CheckResult(**d) for d in json.loads(record["results_json"])]
+    record["extracted"] = json.loads(record["extracted_json"]) if record.get("extracted_json") else None
+    return record

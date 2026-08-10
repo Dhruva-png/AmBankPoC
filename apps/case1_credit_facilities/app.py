@@ -1,9 +1,12 @@
 import json as _json
 import sys
 import tempfile
+import time
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 APP_DIR = Path(__file__).resolve().parent
@@ -11,7 +14,10 @@ REPO_ROOT = APP_DIR.parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src" / "common"))
 sys.path.insert(0, str(REPO_ROOT / "src" / "case1_credit_facilities"))
 
+import case_store  # noqa: E402
+import excel_export  # noqa: E402
 import groq_client  # noqa: E402
+import shared_pages  # noqa: E402
 import ui_components as ui  # noqa: E402
 from extract_fields import extract_credit_paper_fields, extract_lo_fields  # noqa: E402
 from compare import compare, to_markdown, PASS, FAIL, REVIEW, NA  # noqa: E402
@@ -23,9 +29,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+CASE_TYPE = "case1"
 SAMPLE_DIR = REPO_ROOT / "samples" / "case-1-credit-facilities" / "hadyan-sdn-bhd"
 SAMPLE_CP = SAMPLE_DIR / "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx"
 SAMPLE_LO = SAMPLE_DIR / "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc"
+
+NAV_PAGES = ["Control Testing", "Dashboard", "Case Manager", "Exception Catalogue", "Control Scope"]
 
 
 def render_sidebar() -> str:
@@ -37,11 +46,7 @@ def render_sidebar() -> str:
     )
     with st.sidebar:
         st.markdown('<div class="sb-section-label">Navigate</div>', unsafe_allow_html=True)
-        page = st.radio(
-            "Navigation",
-            ["Control Testing", "Exception Catalogue", "Control Scope"],
-            label_visibility="collapsed",
-        )
+        page = st.radio("Navigation", NAV_PAGES, label_visibility="collapsed")
     ui.sidebar_groq_status(groq_client.status())
     ui.sidebar_module_indicator([("Credit Facilities", True), ("Account Opening (CIF)", False)])
     with st.sidebar:
@@ -93,6 +98,7 @@ def page_run_comparison() -> None:
         return
 
     if st.button("Run Control Testing", type="primary"):
+        started = time.time()
         with st.spinner("Extracting fields and reconciling against the Credit Paper..."):
             try:
                 cp = extract_credit_paper_fields(cp_path)
@@ -101,21 +107,34 @@ def page_run_comparison() -> None:
             except Exception as exc:
                 st.error(f"Extraction/comparison failed: {exc}")
                 return
-        st.session_state["case1_results"] = (cp, lo, results)
+        with st.spinner("Generating AI remarks..."):
+            remarks = groq_client.generate_case_remarks(results, f"Case 1 (Credit Facilities) — {cp.get('customer', 'Unknown Customer')}")
+        elapsed = time.time() - started
+        processed_at = datetime.now().isoformat(timespec="seconds")
+        documents = [
+            {"label": "Credit Paper", "filename": Path(cp_path).name},
+            {"label": "Letter of Offer", "filename": Path(lo_path).name},
+        ]
+        case_id = case_store.save_case(CASE_TYPE, documents, results, elapsed, remarks)
+        st.session_state["case1_results"] = (cp, lo, results, case_id, remarks, elapsed, documents, processed_at)
 
     if "case1_results" not in st.session_state:
         return
 
-    cp, lo, results = st.session_state["case1_results"]
+    cp, lo, results, case_id, remarks, elapsed, documents, processed_at = st.session_state["case1_results"]
     counts = {s: sum(1 for r in results if r.status == s) for s in (PASS, FAIL, REVIEW, NA)}
 
     ui.section_header("Result Summary")
     ui.stat_strip([
+        ("Case ID", case_id),
         ("Pass", str(counts[PASS])),
         ("Fail", str(counts[FAIL])),
         ("Review", str(counts[REVIEW])),
         ("N/A", str(counts[NA])),
     ])
+
+    ui.section_header("AI Remarks")
+    st.markdown(f'<div class="detail-note">{remarks}</div>', unsafe_allow_html=True)
 
     ui.section_header("Control Checklist")
     st.caption("Select a row to view full evidence, sourcing and reasoning for that control.")
@@ -127,18 +146,41 @@ def page_run_comparison() -> None:
         ui.empty_panel("No results to display.")
 
     ui.section_header("Export")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
+        st.download_button(
+            "Download Excel workbook",
+            excel_export.build_workbook(
+                case_meta={
+                    "title": "Case 1 — Credit Facilities Control Testing Report",
+                    "case_id": case_id,
+                    "module": "Credit Facilities",
+                    "processed_at": processed_at,
+                    "processing_time": f"{elapsed:.1f}s",
+                    "documents": ", ".join(d["filename"] for d in documents),
+                    "overall_status": "FLAGGED" if (counts[FAIL] or counts[REVIEW]) else "CLEAR",
+                    "ai_engine": "Groq" if groq_client.is_configured() else "Not configured",
+                },
+                results=results,
+                remarks=remarks,
+                left_label="Credit Paper",
+                right_label="Letter of Offer",
+            ),
+            file_name=f"{case_id}-report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    with col2:
         st.download_button(
             "Download Markdown report",
             to_markdown(cp, lo, results),
-            file_name="case1-exception-report.md",
+            file_name=f"{case_id}-report.md",
         )
-    with col2:
+    with col3:
         st.download_button(
             "Download JSON report",
             _json.dumps(
                 {
+                    "case_id": case_id,
                     "credit_paper": cp,
                     "letter_of_offer": {k: v for k, v in lo.items() if k != "raw_text"},
                     "results": [asdict(r) for r in results],
@@ -147,7 +189,7 @@ def page_run_comparison() -> None:
                 ensure_ascii=False,
                 default=str,
             ),
-            file_name="case1-exception-report.json",
+            file_name=f"{case_id}-report.json",
         )
 
     with st.expander("Raw extracted fields — Credit Paper"):
@@ -174,8 +216,6 @@ def page_exception_catalogue() -> None:
         ("8", "Incorrect customer details in LO", "—"),
         ("9", "Wrong letterhead used (Conventional/Islamic)", "—"),
     ]
-    import pandas as pd
-
     df = pd.DataFrame(exceptions, columns=["No.", "Exception", "KCT Reference"])
     st.dataframe(df, hide_index=True, width="stretch")
 
@@ -209,6 +249,10 @@ def main() -> None:
     page = render_sidebar()
     if page == "Control Testing":
         page_run_comparison()
+    elif page == "Dashboard":
+        shared_pages.render_dashboard(CASE_TYPE, "Credit Facilities")
+    elif page == "Case Manager":
+        shared_pages.render_case_manager(CASE_TYPE, "Credit Facilities", "Credit Paper", "Letter of Offer")
     elif page == "Exception Catalogue":
         page_exception_catalogue()
     else:

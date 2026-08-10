@@ -188,3 +188,35 @@ def image_file_to_b64(path: str) -> tuple[str, str]:
     mime = "image/png" if suffix == ".png" else "image/jpeg"
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8"), mime
+
+
+_REMARKS_PROMPT = """You are a senior internal audit reviewer at a bank finalizing a control-testing workbook for {case_label}.
+
+Below are the automated KCT control testing results for this case:
+
+{results_summary}
+
+Write a concise, professional remarks paragraph (3-5 sentences) for the audit workbook. Assess the overall reliability/authenticity of the reconciled documents based on these findings. Explicitly reference any FAIL exceptions and any REVIEW items needing manual follow-up, and note where confidence was low. Do not simply restate the table -- synthesize a conclusion a reviewer could sign off against. Write in formal audit tone, third person, no headings.
+
+Return strict JSON only:
+{{"remarks": "..."}}"""
+
+
+def generate_case_remarks(results, case_label: str) -> str:
+    if not is_configured():
+        return (
+            "Automated remarks unavailable -- AI engine not configured for this run. "
+            "Refer to the Line Items sheet for individual check status, confidence and sourcing."
+        )
+    lines = []
+    for r in results:
+        conf = f"{r.confidence:.0f}%" if r.confidence is not None else "n/a"
+        lines.append(f"- {r.kct} ({r.check}): {r.status}, confidence {conf} -- {r.note}")
+    try:
+        result = chat_json(
+            _REMARKS_PROMPT.format(case_label=case_label, results_summary="\n".join(lines)),
+            max_tokens=500,
+        )
+        return result.get("remarks", "").strip() or "AI remarks generation returned no content."
+    except Exception as exc:
+        return f"AI remarks generation failed ({exc}). Refer to the Line Items sheet for detail."

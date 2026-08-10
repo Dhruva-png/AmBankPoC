@@ -1,3 +1,4 @@
+import json as _json
 import sys
 import tempfile
 from dataclasses import asdict
@@ -16,8 +17,8 @@ from extract_fields import extract_credit_paper_fields, extract_lo_fields  # noq
 from compare import compare, to_markdown, PASS, FAIL, REVIEW, NA  # noqa: E402
 
 st.set_page_config(
-    page_title="AmBank POC · Case 1 — Credit Facilities",
-    page_icon="🏦",
+    page_title="AmBank KCT Intelligence · Credit Facilities",
+    page_icon="◆",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -29,23 +30,24 @@ SAMPLE_LO = SAMPLE_DIR / "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc"
 
 def render_sidebar() -> str:
     ui.sidebar_logo(
-        app_name="AmBank KCT AI",
-        tagline="Case 1 · Credit Facilities",
+        app_name="AmBank KCT Intelligence",
+        tagline="Credit Facilities Module",
         assets_dir=APP_DIR / "assets",
-        monogram="C1",
+        monogram="AK",
     )
     with st.sidebar:
+        st.markdown('<div class="sb-section-label">Navigate</div>', unsafe_allow_html=True)
         page = st.radio(
             "Navigation",
-            ["Run Comparison", "Exception Catalogue", "About This POC"],
+            ["Control Testing", "Exception Catalogue", "Control Scope"],
             label_visibility="collapsed",
         )
-        st.markdown('<hr style="border-top:1px solid rgba(255,255,255,0.12);margin:0.75rem 0;">', unsafe_allow_html=True)
     ui.sidebar_groq_status(groq_client.status())
+    ui.sidebar_module_indicator([("Credit Facilities", True), ("Account Opening (CIF)", False)])
     with st.sidebar:
         st.markdown(
-            '<div style="font-size:0.65rem;color:rgba(255,255,255,0.35);margin-top:1.5rem;text-align:center;">'
-            "AmBank Internal Audit POC · Case 1 v1.0</div>",
+            '<div style="font-size:0.65rem;color:#5B6272;margin-top:1.4rem;text-align:center;">'
+            "AmBank Internal Audit &nbsp;·&nbsp; Build 1.0</div>",
             unsafe_allow_html=True,
         )
     return page
@@ -58,23 +60,21 @@ def _save_upload(uploaded_file, suffix: str) -> str:
 
 
 def page_run_comparison() -> None:
-    ui.page_hero(
-        "Case 1 · Credit Facilities",
-        "Letter of Offer vs. Credit Paper — Exception Checker",
-        "Upload an approved Credit Paper and the corresponding issued Letter of "
-        "Offer. The tool extracts the KCT-relevant fields from each, runs the "
-        "Case 1 exception checks (facility amount, purpose, pricing, tenure, "
-        "special conditions, customer details, letterhead), and reports every "
-        "result with a confidence score and the exact source it was read from.",
+    ui.breadcrumb("AmBank Internal Audit", "Credit Facilities", "Control Testing")
+    ui.page_header(
+        "Letter of Offer vs. Credit Paper",
+        "Automated KCT-00001–00007 control testing: extracts facility terms from the "
+        "approved Credit Paper and the issued Letter of Offer, then reconciles them "
+        "field by field with confidence scoring and full source attribution.",
     )
 
-    use_sample = st.checkbox("Use the committed Hadyan Sdn Bhd sample instead of uploading", value=not groq_client.is_configured() and SAMPLE_CP.exists())
+    use_sample = st.checkbox("Use committed reference sample (Hadyan Sdn Bhd)", value=not groq_client.is_configured() and SAMPLE_CP.exists())
 
     cp_path = lo_path = None
     if use_sample:
         if SAMPLE_CP.exists() and SAMPLE_LO.exists():
             cp_path, lo_path = str(SAMPLE_CP), str(SAMPLE_LO)
-            st.caption(f"Using sample: `{SAMPLE_CP.name}` + `{SAMPLE_LO.name}`")
+            st.caption(f"Reference sample: `{SAMPLE_CP.name}` + `{SAMPLE_LO.name}`")
         else:
             st.warning("Sample files not found in samples/case-1-credit-facilities/hadyan-sdn-bhd/.")
     else:
@@ -89,11 +89,11 @@ def page_run_comparison() -> None:
                 lo_path = _save_upload(lo_upload, Path(lo_upload.name).suffix)
 
     if not (cp_path and lo_path):
-        st.info("Provide both documents (or use the sample) to run the comparison.")
+        st.info("Provide both documents (or use the reference sample) to run control testing.")
         return
 
-    if st.button("Run Comparison", type="primary"):
-        with st.spinner("Extracting fields and comparing against the Credit Paper..."):
+    if st.button("Run Control Testing", type="primary"):
+        with st.spinner("Extracting fields and reconciling against the Credit Paper..."):
             try:
                 cp = extract_credit_paper_fields(cp_path)
                 lo = extract_lo_fields(lo_path)
@@ -109,37 +109,22 @@ def page_run_comparison() -> None:
     cp, lo, results = st.session_state["case1_results"]
     counts = {s: sum(1 for r in results if r.status == s) for s in (PASS, FAIL, REVIEW, NA)}
 
-    ui.section_header("Summary")
-    cols = st.columns(4)
-    for col, (label, value) in zip(cols, [("Pass", counts[PASS]), ("Fail", counts[FAIL]), ("Review", counts[REVIEW]), ("N/A", counts[NA])]):
-        with col:
-            st.markdown(ui.metric_card(label, str(value)), unsafe_allow_html=True)
+    ui.section_header("Result Summary")
+    ui.stat_strip([
+        ("Pass", str(counts[PASS])),
+        ("Fail", str(counts[FAIL])),
+        ("Review", str(counts[REVIEW])),
+        ("N/A", str(counts[NA])),
+    ])
 
-    ui.section_header("Exception Checklist")
-    for r in results:
-        with st.container():
-            st.markdown(
-                f"""<div class="card">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-                    <div style="font-weight:700;color:var(--text-heading);">{r.kct} — {r.check}</div>
-                    <div>{ui.status_badge(r.status)} &nbsp; {ui.confidence_badge(r.confidence)}</div>
-                </div>
-                <div style="font-size:0.88rem;color:var(--text-body);margin-bottom:0.6rem;">{r.note}</div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-                    <div>
-                        <div style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:0.2rem;">Credit Paper</div>
-                        <div style="font-size:0.85rem;">{r.left_value or '—'}</div>
-                        <div style="margin-top:0.35rem;">{ui.source_tag(r.source_left) if r.source_left else ''}</div>
-                    </div>
-                    <div>
-                        <div style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;font-weight:700;margin-bottom:0.2rem;">Letter of Offer</div>
-                        <div style="font-size:0.85rem;">{r.right_value or '—'}</div>
-                        <div style="margin-top:0.35rem;">{ui.source_tag(r.source_right) if r.source_right else ''}</div>
-                    </div>
-                </div>
-                </div>""",
-                unsafe_allow_html=True,
-            )
+    ui.section_header("Control Checklist")
+    st.caption("Select a row to view full evidence, sourcing and reasoning for that control.")
+    idx = ui.results_grid(results, key="case1_grid")
+
+    if idx is not None:
+        ui.detail_panel(results[idx], "Credit Paper", "Letter of Offer")
+    else:
+        ui.empty_panel("No results to display.")
 
     ui.section_header("Export")
     col1, col2 = st.columns(2)
@@ -150,8 +135,6 @@ def page_run_comparison() -> None:
             file_name="case1-exception-report.md",
         )
     with col2:
-        import json as _json
-
         st.download_button(
             "Download JSON report",
             _json.dumps(
@@ -167,18 +150,18 @@ def page_run_comparison() -> None:
             file_name="case1-exception-report.json",
         )
 
-    with st.expander("Raw extracted fields (Credit Paper)"):
+    with st.expander("Raw extracted fields — Credit Paper"):
         ui.render_json({k: v for k, v in cp.items()})
-    with st.expander("Raw extracted fields (Letter of Offer)"):
+    with st.expander("Raw extracted fields — Letter of Offer"):
         ui.render_json({k: v for k, v in lo.items() if k != "raw_text"})
 
 
 def page_exception_catalogue() -> None:
-    ui.page_hero(
-        "Case 1 · Credit Facilities",
-        "Exception Catalogue & KCTs",
-        "The nine exceptions this checker screens for, and the KCT each maps to. "
-        "Source: docs/poc-scope.md, extracted from the POC scope deck.",
+    ui.breadcrumb("AmBank Internal Audit", "Credit Facilities", "Exception Catalogue")
+    ui.page_header(
+        "Exception Catalogue",
+        "The nine control exceptions this module screens for, mapped to their KCT reference. "
+        "Source: docs/poc-scope.md.",
     )
     exceptions = [
         ("1", "Facility amount in LO differs from approved amount", "KCT-00001"),
@@ -191,33 +174,32 @@ def page_exception_catalogue() -> None:
         ("8", "Incorrect customer details in LO", "—"),
         ("9", "Wrong letterhead used (Conventional/Islamic)", "—"),
     ]
-    ui.section_header("Exceptions")
-    for num, desc, kct in exceptions:
-        st.markdown(f"**#{num}** — {desc} &nbsp;·&nbsp; `{kct}`")
+    import pandas as pd
+
+    df = pd.DataFrame(exceptions, columns=["No.", "Exception", "KCT Reference"])
+    st.dataframe(df, hide_index=True, width="stretch")
 
 
 def page_about() -> None:
-    ui.page_hero(
-        "AmBank Internal Audit POC",
-        "About This Proof of Concept",
-        "Assessing whether AI can assist in identifying control breaches and "
-        "exceptions during Letter of Offer preparation and review.",
+    ui.breadcrumb("AmBank Internal Audit", "Credit Facilities", "Control Scope")
+    ui.page_header(
+        "Control Scope",
+        "Purpose and boundaries of the Credit Facilities control testing module.",
     )
     st.markdown(
         """
         The Letter of Offer (LO) is a critical customer-facing document that
-        formalizes approved credit facilities and terms. Recent testing
-        identified several discrepancies between the approved Credit Paper and
-        the issued LO, together with weaknesses in the Maker-Checker review
-        process. This POC assesses whether AI can assist in identifying control
-        breaches and exceptions during LO preparation and review.
+        formalizes approved credit facilities and terms. Prior manual testing
+        identified discrepancies between the approved Credit Paper and the
+        issued LO, along with weaknesses in the Maker-Checker review process.
+        This module automates that reconciliation.
 
-        Deterministic checks (facility amount, customer details, letterhead)
-        are matched exactly and always score 100% confidence. Judgement-based
-        checks (purpose wording, special conditions) are sent to Groq for a
-        semantic read with a self-reported confidence score and reasoning —
-        every result also shows exactly which document and section it was
-        sourced from.
+        Deterministic checks — facility amount, customer details, letterhead —
+        are matched exactly and score 100% confidence. Judgement-based checks —
+        purpose wording, special conditions — are routed through a language
+        model for a semantic read, returned with a self-reported confidence
+        score and reasoning. Every result names the exact document and section
+        it was sourced from.
         """
     )
 
@@ -225,7 +207,7 @@ def page_about() -> None:
 def main() -> None:
     ui.inject_css()
     page = render_sidebar()
-    if page == "Run Comparison":
+    if page == "Control Testing":
         page_run_comparison()
     elif page == "Exception Catalogue":
         page_exception_catalogue()

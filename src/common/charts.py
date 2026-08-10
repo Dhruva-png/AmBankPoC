@@ -23,6 +23,21 @@ def _base_layout(fig: go.Figure, title: str, height: int = 300) -> go.Figure:
     return fig
 
 
+_FLAT_COLUMNS = [
+    "case_id",
+    "created_at",
+    "kct",
+    "check",
+    "status",
+    "confidence",
+    "note",
+    "left_value",
+    "right_value",
+    "source_left",
+    "source_right",
+]
+
+
 def flatten_results(cases_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, case in cases_df.iterrows():
@@ -39,9 +54,14 @@ def flatten_results(cases_df: pd.DataFrame) -> pd.DataFrame:
                     "check": r.get("check"),
                     "status": r.get("status"),
                     "confidence": r.get("confidence"),
+                    "note": r.get("note"),
+                    "left_value": r.get("left_value"),
+                    "right_value": r.get("right_value"),
+                    "source_left": r.get("source_left"),
+                    "source_right": r.get("source_right"),
                 }
             )
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=_FLAT_COLUMNS)
 
 
 def status_distribution_chart(counts: dict[str, int]) -> go.Figure:

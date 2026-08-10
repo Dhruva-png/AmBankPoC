@@ -67,6 +67,13 @@ _STYLE = """
 """
 
 STATUS_BADGE_COLOR = {"PASS": "green", "FAIL": "red", "REVIEW": "orange", "N/A": "gray"}
+STATUS_ICON = {
+    "PASS": ":material/check_circle:",
+    "FAIL": ":material/error:",
+    "REVIEW": ":material/warning:",
+    "N/A": ":material/remove_circle:",
+}
+SEVERITY_LABEL = {"FAIL": "High", "REVIEW": "Medium"}
 
 
 def inject_style() -> None:
@@ -105,22 +112,14 @@ def confidence_text(score) -> str:
     return f"{score:.0f}%" if score is not None else "—"
 
 
-def results_dataframe(results) -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "KCT": r.kct,
-                "Check": r.check,
-                "Status": r.status,
-                "Confidence": r.confidence,
-            }
-            for r in results
-        ]
-    )
+def _preview(value: str, limit: int = 60) -> str:
+    text = (value or "").replace("\n", " ").strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def results_table(results, key: str):
-    df = results_dataframe(results)
+def selectable_table(df: pd.DataFrame, column_config: dict, key: str):
+    if df.empty:
+        return None
     event = st.dataframe(
         df,
         hide_index=True,
@@ -128,22 +127,84 @@ def results_table(results, key: str):
         on_select="rerun",
         selection_mode="single-row",
         key=key,
-        column_config={
-            "KCT": st.column_config.TextColumn(width="small"),
-            "Check": st.column_config.TextColumn(width="large"),
-            "Status": st.column_config.TextColumn(width="small"),
-            "Confidence": st.column_config.ProgressColumn(width="medium", min_value=0, max_value=100, format="%.0f%%"),
-        },
+        column_config=column_config,
     )
     if event and event.selection and event.selection.rows:
         return event.selection.rows[0]
-    return 0 if len(results) else None
+    return 0
+
+
+def results_dataframe(results, left_label: str = "Value A", right_label: str = "Value B") -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "KCT": r.kct,
+                "Check": r.check,
+                "Status": r.status,
+                "Confidence": r.confidence,
+                left_label: _preview(r.left_value),
+                right_label: _preview(r.right_value),
+            }
+            for r in results
+        ]
+    )
+
+
+def results_table(results, key: str, left_label: str = "Value A", right_label: str = "Value B"):
+    df = results_dataframe(results, left_label, right_label)
+    column_config = {
+        "KCT": st.column_config.TextColumn(width="small"),
+        "Check": st.column_config.TextColumn(width="large"),
+        "Status": st.column_config.TextColumn(width="small"),
+        "Confidence": st.column_config.ProgressColumn(width="small", min_value=0, max_value=100, format="%.0f%%"),
+        left_label: st.column_config.TextColumn(width="medium"),
+        right_label: st.column_config.TextColumn(width="medium"),
+    }
+    return selectable_table(df, column_config, key)
+
+
+def flagged_cases_table(df: pd.DataFrame, key: str):
+    column_config = {
+        "Case": st.column_config.TextColumn(width="medium"),
+        "Recommendation": st.column_config.TextColumn(width="medium"),
+        "Confidence": st.column_config.ProgressColumn(width="medium", min_value=0, max_value=100, format="%.0f%%"),
+        "Findings": st.column_config.NumberColumn(width="small"),
+    }
+    return selectable_table(df, column_config, key)
+
+
+def findings_table(df: pd.DataFrame, key: str):
+    column_config = {
+        "Severity": st.column_config.TextColumn(width="small"),
+        "Title": st.column_config.TextColumn(width="large"),
+        "Confidence": st.column_config.ProgressColumn(width="medium", min_value=0, max_value=100, format="%.0f%%"),
+    }
+    return selectable_table(df, column_config, key)
+
+
+def status_banner(counts: dict, noun: str = "case") -> None:
+    fail = counts.get("FAIL", 0)
+    review = counts.get("REVIEW", 0)
+    if fail:
+        st.error(f"{fail} exception(s) raised on this {noun} — hold for review.", icon=":material/error:")
+    elif review:
+        st.warning(f"{review} item(s) flagged for manual review.", icon=":material/warning:")
+    else:
+        st.success(f"All controls passed for this {noun}.", icon=":material/check_circle:")
+
+
+def document_chips(documents: list[dict]) -> None:
+    with st.container(horizontal=True):
+        for doc in documents:
+            label = doc.get("label", "")
+            st.badge(f"{label}: {doc['filename']}" if label else doc["filename"], icon=":material/description:")
 
 
 def result_detail(r, left_label: str, right_label: str) -> None:
+    icon = STATUS_ICON.get(r.status, ":material/help:")
     with st.container(border=True):
         with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
-            st.markdown(f"**{r.kct} — {r.check}**")
+            st.markdown(f"{icon} **{r.kct} — {r.check}**")
             with st.container(horizontal=True):
                 status_badge(r.status)
                 st.caption(f"Confidence {confidence_text(r.confidence)}")
@@ -153,9 +214,9 @@ def result_detail(r, left_label: str, right_label: str) -> None:
             st.caption(left_label.upper())
             st.write(r.left_value or "—")
             if r.source_left:
-                st.caption(r.source_left)
+                st.caption(f":material/description: {r.source_left}")
         with col2:
             st.caption(right_label.upper())
             st.write(r.right_value or "—")
             if r.source_right:
-                st.caption(r.source_right)
+                st.caption(f":material/description: {r.source_right}")

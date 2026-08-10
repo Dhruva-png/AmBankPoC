@@ -217,3 +217,44 @@ def generate_case_remarks(results, case_label: str) -> str:
         return result.get("remarks", "").strip() or "AI remarks generation returned no content."
     except Exception as exc:
         return f"AI remarks generation failed ({exc}). Refer to the Line Items sheet for detail."
+
+
+_MODULE_SUMMARY_PROMPT = """You are a senior internal audit reviewer at a bank summarizing the results of an AI-assisted key control testing (KCT) exercise for {module_name}.
+
+Aggregate statistics across all {total_cases} case(s) processed so far:
+- Flagged (containing at least one exception or review item): {flagged_cases}
+- Clean (all controls passed): {clean_cases}
+- Total exceptions raised (FAIL + REVIEW findings): {total_findings}
+- Most frequent exception(s): {top_exceptions}
+- Average AI confidence across scored checks: {avg_confidence}
+
+Write a concise, professional executive summary (3-5 sentences) for an internal audit reporting pack. Assess overall control effectiveness across the population reviewed, call out the most frequent or significant exception(s), and state whether the population warrants escalation or is broadly satisfactory. Formal audit tone, third person, no headings, do not simply restate the raw numbers.
+
+Return strict JSON only:
+{{"summary": "..."}}"""
+
+
+def generate_module_summary(stats: dict, module_name: str) -> str:
+    if not is_configured():
+        return (
+            "Automated executive summary unavailable -- AI engine not configured for this run. "
+            "Refer to the KPI figures and case list below for the underlying statistics."
+        )
+    if not stats.get("total_cases"):
+        return "No cases have been processed yet -- run control testing on at least one case, then generate this report."
+    try:
+        result = chat_json(
+            _MODULE_SUMMARY_PROMPT.format(
+                module_name=module_name,
+                total_cases=stats.get("total_cases", 0),
+                flagged_cases=stats.get("flagged_cases", 0),
+                clean_cases=stats.get("clean_cases", 0),
+                total_findings=stats.get("total_findings", 0),
+                top_exceptions=stats.get("top_exceptions") or "none",
+                avg_confidence=stats.get("avg_confidence") or "n/a",
+            ),
+            max_tokens=500,
+        )
+        return result.get("summary", "").strip() or "AI summary generation returned no content."
+    except Exception as exc:
+        return f"AI summary generation failed ({exc}). Refer to the KPI figures and case list below for the underlying statistics."

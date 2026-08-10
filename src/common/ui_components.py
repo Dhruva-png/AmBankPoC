@@ -99,6 +99,11 @@ def inject_css() -> None:
         [data-testid="stSidebar"] hr { border-color: var(--sidebar-border) !important; margin: 0.6rem 0 !important; }
 
         .sb-logo { padding: 1.1rem 1rem 0.9rem; display: flex; align-items: center; gap: 0.6rem; }
+        .sb-logo-card {
+            margin: 1rem 1rem 0.6rem; padding: 0.85rem 1rem; background: #FFFFFF;
+            border-radius: 6px; border: 1px solid var(--sidebar-border);
+        }
+        .sb-logo-card [data-testid="stImage"] { display: flex; justify-content: center; }
         .sb-mark {
             width: 26px; height: 26px; border-radius: 4px;
             border: 1px solid rgba(255,255,255,0.18);
@@ -214,12 +219,17 @@ def inject_css() -> None:
 
 
 def sidebar_logo(app_name: str, tagline: str, assets_dir: Path, monogram: str) -> None:
-    logo_path = assets_dir / "logo.png"
+    logo_path = None
+    for candidate in ("logo.png", "logo.jpg", "logo.jpeg"):
+        if (assets_dir / candidate).exists():
+            logo_path = assets_dir / candidate
+            break
     with st.sidebar:
-        if logo_path.exists():
-            st.markdown('<div class="sb-logo">', unsafe_allow_html=True)
-            st.image(str(logo_path), width=140)
-            st.markdown(f'<div class="sb-tagline">{tagline}</div></div>', unsafe_allow_html=True)
+        if logo_path:
+            st.markdown('<div class="sb-logo-card">', unsafe_allow_html=True)
+            st.image(str(logo_path), width=150)
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="sb-tagline" style="padding:0 1rem;">{tagline}</div>', unsafe_allow_html=True)
         else:
             st.markdown(
                 f"""

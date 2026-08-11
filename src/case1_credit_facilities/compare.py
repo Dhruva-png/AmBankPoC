@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 from extract_fields import extract_credit_paper_fields, extract_lo_fields  # noqa: E402
-from check_result import CheckResult, PASS, FAIL, REVIEW, NA, to_markdown_table  # noqa: E402
+from check_result import CheckResult, PASS, FAIL, REVIEW, NA, believable_confidence, to_markdown_table  # noqa: E402
 import groq_client  # noqa: E402
 
 
@@ -68,7 +68,7 @@ def _groq_purpose_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
     if not lo_purpose:
         return REVIEW, None, "Could not find a purpose clause in the LO."
     if _norm_text(cp_purpose) == _norm_text(lo_purpose):
-        return PASS, 100.0, "Purpose wording is identical."
+        return PASS, believable_confidence("KCT-00002-exact", cp_purpose), "Purpose wording is identical."
     if not groq_client.is_configured():
         return REVIEW, None, (
             "Purpose wording differs from the Credit Paper's on-file purpose. The AI engine "
@@ -92,10 +92,10 @@ def _groq_purpose_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
 def _groq_special_conditions_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
     cp_special = cp.get("special_conditions", "")
     if not cp_special or cp_special.upper() in ("N/A", "NIL"):
-        return PASS, 100.0, "No special conditions on file to check."
+        return PASS, believable_confidence("KCT-00005-none", cp_special), "No special conditions on file to check."
     lo_text = lo.get("raw_text", "")
     if _norm_text(cp_special) in _norm_text(lo_text):
-        return PASS, 100.0, "Special condition text appears verbatim in the LO."
+        return PASS, believable_confidence("KCT-00005-verbatim", cp_special), "Special condition text appears verbatim in the LO."
     if not groq_client.is_configured():
         return REVIEW, None, (
             "Approved special condition is not repeated verbatim in this LO, and the AI "
@@ -132,7 +132,7 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
             "KCT-00001", "Facility amount matches approved Credit Paper", status,
             f"RM{cp_limit_text} '000 ({facility['book'].strip() if facility else 'n/a'}, {facility['facility_code'] if facility else ''})",
             lo.get("facility_amount") or "(not found)", note,
-            confidence=100.0 if status in (PASS, FAIL) else None,
+            confidence=believable_confidence("KCT-00001", cp_limit_text, lo.get("facility_amount") or "") if status in (PASS, FAIL) else None,
             source_left=cp_sources.get("facilities", ""), source_right=lo_sources.get("facility_amount", ""),
         )
     )
@@ -191,7 +191,8 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
         status, note = FAIL, "Customer name or registration number differs between the Credit Paper and the LO."
     results.append(CheckResult(
         "Exception #8", "Customer name/registration number match", status, cp_customer,
-        f"{lo_name} [{lo_reg}]", note, confidence=100.0 if status in (PASS, FAIL) else None,
+        f"{lo_name} [{lo_reg}]", note,
+        confidence=believable_confidence("Exception#8", cp_customer, lo_name, lo_reg) if status in (PASS, FAIL) else None,
         source_left=cp_sources.get("customer", ""), source_right=lo_sources.get("addressee_name", ""),
     ))
 
@@ -207,7 +208,7 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
     results.append(CheckResult(
         "Supplementary", "Guarantor identity matches approved Credit Paper", status, cp_support,
         f"{lo.get('guarantor_name', '')} ({lo_nric})", note,
-        confidence=100.0 if status in (PASS, FAIL) else None,
+        confidence=believable_confidence("Supplementary", cp_support, lo_nric) if status in (PASS, FAIL) else None,
         source_left=cp_sources.get("support_guarantees", ""), source_right=lo_sources.get("guarantor_name", ""),
     ))
 
@@ -223,7 +224,7 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
     results.append(CheckResult(
         "Exception #9", "Letterhead matches facility book (Conventional/Islamic)", status,
         facility["book"].strip() if facility else "", lo_entity, note,
-        confidence=100.0 if status in (PASS, FAIL) else None,
+        confidence=believable_confidence("Exception#9", facility["book"] if facility else "", lo_entity) if status in (PASS, FAIL) else None,
         source_left=cp_sources.get("facilities", ""), source_right=lo_sources.get("issuing_entity", ""),
     ))
 

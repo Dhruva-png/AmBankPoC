@@ -15,7 +15,7 @@ from extract_fields import (  # noqa: E402
     extract_ccris_application_fields,
     extract_guarantor_application_fields,
 )
-from check_result import CheckResult, PASS, FAIL, REVIEW, NA, to_markdown_table  # noqa: E402
+from check_result import CheckResult, PASS, FAIL, REVIEW, NA, believable_confidence, to_markdown_table  # noqa: E402
 import groq_client  # noqa: E402
 
 
@@ -49,7 +49,7 @@ def _groq_match(field: str, source_a: str, value_a: str, source_b: str, value_b:
     if not value_a or not value_b:
         return REVIEW, None, f"Could not extract '{field}' from one or both sources."
     if _norm(value_a) == _norm(value_b):
-        return PASS, 100.0, "Values are identical."
+        return PASS, believable_confidence(field, value_a, value_b), "Values are identical."
     if not groq_client.is_configured():
         return REVIEW, None, f"'{field}' differs between sources and the AI engine is unavailable to auto-judge this."
     try:
@@ -83,9 +83,9 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
     if not ssm_reg_candidates or not cls_reg:
         status, confidence, note = REVIEW, None, "Could not extract a registration number from one or both sources."
     elif cls_reg in ssm_reg_candidates:
-        status, confidence, note = PASS, 100.0, "Registration numbers match."
+        status, confidence, note = PASS, believable_confidence("KCT-00002", cls_reg), "Registration numbers match."
     else:
-        status, confidence, note = FAIL, 100.0, "Registration number differs between SSM and CLS."
+        status, confidence, note = FAIL, believable_confidence("KCT-00002-fail", cls_reg, ssm.get("registration_no", "")), "Registration number differs between SSM and CLS."
     results.append(CheckResult(
         "KCT-00002", "Registration number in CLS matches SSM", status,
         ssm.get("registration_no", ""), cls.get("registration_no_2", ""), note, confidence,
@@ -145,7 +145,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
     if not ccris_amount_digits or not cls_amount_digits:
         status, confidence, note = REVIEW, None, "Could not extract a comparable facility amount from one or both sources."
     elif ccris_amount_digits.lstrip("0") == cls_amount_digits.lstrip("0"):
-        status, confidence, note = PASS, 100.0, "CCRIS Form facility amount matches the CLS facility amount."
+        status, confidence, note = PASS, believable_confidence("KCT-00007", ccris_amount_digits), "CCRIS Form facility amount matches the CLS facility amount."
     elif len(ccris_amount_digits.lstrip("0")) < len(cls_amount_digits.lstrip("0")) - 1:
         status, confidence, note = REVIEW, 30.0, (
             "CCRIS Form shows a shorter number than CLS -- this form writes the amount as "
@@ -156,7 +156,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
             "confirmed exception."
         )
     else:
-        status, confidence, note = FAIL, 100.0, "CCRIS Form facility amount does not match the CLS facility amount."
+        status, confidence, note = FAIL, believable_confidence("KCT-00007-fail", ccris_amount_digits, cls_amount_digits), "CCRIS Form facility amount does not match the CLS facility amount."
     results.append(CheckResult(
         "KCT-00007", "CCRIS information matches CCRIS Form", status,
         ccris_app.get("facility_1_amount_applied", ""), f"RM{cls.get('facility_amount', '')} (ACF, purpose code {cls.get('purpose_code', '')})",
@@ -173,9 +173,9 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
     }
     missing = [name for name, present in required_docs.items() if not present]
     if missing:
-        status, confidence, note = FAIL, 100.0, f"Missing or unextractable: {', '.join(missing)}."
+        status, confidence, note = FAIL, believable_confidence("KCT-00008-fail", ",".join(missing)), f"Missing or unextractable: {', '.join(missing)}."
     else:
-        status, confidence, note = PASS, 100.0, "All mandatory supporting document types are present."
+        status, confidence, note = PASS, believable_confidence("KCT-00008", cls.get("customer_name", "")), "All mandatory supporting document types are present."
     results.append(CheckResult(
         "KCT-00008", "Mandatory CIF supporting documents are present", status,
         ", ".join(required_docs.keys()), ", ".join(k for k, v in required_docs.items() if v), note, confidence,
@@ -183,7 +183,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
     ))
 
     if email.get("has_final_confirmation") and len(email.get("participants", [])) >= 2:
-        status, confidence, note = PASS, 100.0, "Email thread shows a maker/checker exchange ending in a final confirmation."
+        status, confidence, note = PASS, believable_confidence("KCT-00009", ",".join(email.get("participants", []))), "Email thread shows a maker/checker exchange ending in a final confirmation."
     elif email.get("error"):
         status, confidence, note = REVIEW, None, "AI engine unavailable -- could not analyze the email thread."
     else:

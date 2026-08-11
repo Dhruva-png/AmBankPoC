@@ -43,6 +43,9 @@ def init_db() -> None:
             )
             """
         )
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(cases)").fetchall()}
+        if "markdown_report" not in existing_cols:
+            conn.execute("ALTER TABLE cases ADD COLUMN markdown_report TEXT")
 
 
 def new_case_id(case_type: str) -> str:

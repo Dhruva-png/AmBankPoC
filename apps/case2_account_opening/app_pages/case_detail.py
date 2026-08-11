@@ -159,6 +159,7 @@ if st.button("Run control testing", icon=":material/play_arrow:", type="primary"
     documents = [{"label": DOC_LABELS[key], "filename": Path(p).name} for key, p in paths.items()]
     markdown_report = to_markdown(cls, email, ssm, ccris_app, guarantor_app, results)
     new_case_id = case_store.save_case("case2", documents, results, elapsed, remarks, markdown_report)
+    case_store.store_documents(new_case_id, list(paths.values()))
     st.session_state["selected_case_id"] = new_case_id
     st.toast(f"Case {new_case_id} created", icon=":material/check_circle:")
     st.rerun()

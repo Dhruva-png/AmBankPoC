@@ -8,9 +8,75 @@ import streamlit as st
 
 import case_store
 import charts
+import document_preview
 import excel_export
 import groq_client
 import ui_components as ui
+
+
+@st.cache_data(show_spinner="Rendering document preview...")
+def _rendered_pages(path: str, out_dir: str) -> list[str]:
+    try:
+        return document_preview.render_document_pages(path, out_dir)
+    except Exception:
+        return []
+
+
+def _document_field_rows(results, side: str) -> pd.DataFrame:
+    value_attr, source_attr = f"{side}_value", f"source_{side}"
+    rows = [
+        {
+            "Field": r.check,
+            "Value": getattr(r, value_attr) or "—",
+            "Confidence": r.confidence,
+            "Source": getattr(r, source_attr) or "—",
+        }
+        for r in results
+    ]
+    return pd.DataFrame(rows, columns=["Field", "Value", "Confidence", "Source"])
+
+
+def _document_field_rows_for_file(results, filename: str) -> pd.DataFrame:
+    rows = []
+    for r in results:
+        if r.source_left and filename in r.source_left:
+            rows.append({"Field": r.check, "Value": r.left_value or "—", "Confidence": r.confidence, "Source": r.source_left})
+        if r.source_right and filename in r.source_right:
+            rows.append({"Field": r.check, "Value": r.right_value or "—", "Confidence": r.confidence, "Source": r.source_right})
+    return pd.DataFrame(rows, columns=["Field", "Value", "Confidence", "Source"])
+
+
+def _render_document_extraction(case_id: str, documents: list[dict], results) -> None:
+    render_root = str(case_store.document_dir(case_id) / "_pages")
+    st.subheader("Document extraction")
+    st.caption("Source documents alongside the fields extracted from each, with confidence and page-based sourcing.")
+
+    if len(documents) == 2:
+        preview_cols = st.columns(2)
+        for col, doc in zip(preview_cols, documents):
+            with col:
+                path = case_store.document_path(case_id, doc["filename"])
+                pages = _rendered_pages(str(path), render_root) if path else []
+                ui.document_preview_panel(doc.get("label", ""), doc["filename"], pages, key=f"{case_id}_{doc['filename']}_preview")
+        data_cols = st.columns(2)
+        for col, doc, side in zip(data_cols, documents, ("left", "right")):
+            with col:
+                st.caption(f"{doc.get('label', '')} extracted fields")
+                ui.field_extraction_table(_document_field_rows(results, side), key=f"{case_id}_{side}_fields")
+    else:
+        tabs = st.tabs([d.get("label", d["filename"]) for d in documents])
+        for tab, doc in zip(tabs, documents):
+            with tab:
+                path = case_store.document_path(case_id, doc["filename"])
+                pages = _rendered_pages(str(path), render_root) if path else []
+                col1, col2 = st.columns(2)
+                with col1:
+                    ui.document_preview_panel(doc.get("label", ""), doc["filename"], pages, key=f"{case_id}_{doc['filename']}_preview")
+                with col2:
+                    st.caption("Extracted fields sourced from this document")
+                    ui.field_extraction_table(
+                        _document_field_rows_for_file(results, doc["filename"]), key=f"{case_id}_{doc['filename']}_fields"
+                    )
 
 
 def _module_stats(df: pd.DataFrame, flat: pd.DataFrame) -> dict:
@@ -215,6 +281,9 @@ def render_case_results(
     with st.container(border=True):
         st.subheader(f"Documents ({len(documents)})")
         ui.document_chips(documents)
+
+    with st.container(border=True):
+        _render_document_extraction(case_id, documents, results)
 
     with st.container(border=True):
         st.subheader("AI remarks")

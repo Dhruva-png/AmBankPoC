@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import uuid
 from dataclasses import asdict
@@ -13,8 +14,25 @@ from check_result import CheckResult
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = REPO_ROOT / "data" / "kct_cases.db"
+DOCS_DIR = REPO_ROOT / "data" / "documents"
 
 _PREFIX = {"case1": "CF", "case2": "AO"}
+
+
+def document_dir(case_id: str) -> Path:
+    return DOCS_DIR / case_id
+
+
+def store_documents(case_id: str, source_paths: list[str]) -> None:
+    dest_dir = document_dir(case_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for src in source_paths:
+        shutil.copyfile(src, dest_dir / Path(src).name)
+
+
+def document_path(case_id: str, filename: str) -> Path | None:
+    path = document_dir(case_id) / filename
+    return path if path.exists() else None
 
 
 def _connect() -> sqlite3.Connection:

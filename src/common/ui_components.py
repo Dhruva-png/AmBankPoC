@@ -200,6 +200,43 @@ def document_chips(documents: list[dict]) -> None:
             st.badge(f"{label}: {doc['filename']}" if label else doc["filename"], icon=":material/description:")
 
 
+def document_preview_panel(label: str, filename: str, pages: list[str], key: str) -> None:
+    with st.container(border=True):
+        st.markdown(f"**{label}**")
+        st.caption(filename)
+        if not pages:
+            st.caption("Preview unavailable for this file.")
+            return
+        page_idx = 0
+        if len(pages) > 1:
+            page_idx = (
+                st.number_input(
+                    "Page", min_value=1, max_value=len(pages), value=1, step=1, key=f"{key}_page", label_visibility="collapsed"
+                )
+                - 1
+            )
+            st.caption(f"Page {page_idx + 1} of {len(pages)}")
+        st.image(pages[page_idx], width="stretch")
+
+
+def field_extraction_table(rows: pd.DataFrame, key: str) -> None:
+    if rows.empty:
+        st.caption("No fields extracted from this document.")
+        return
+    st.dataframe(
+        rows,
+        hide_index=True,
+        width="stretch",
+        key=key,
+        column_config={
+            "Field": st.column_config.TextColumn(width="medium"),
+            "Value": st.column_config.TextColumn(width="large"),
+            "Confidence": st.column_config.ProgressColumn(width="small", min_value=0, max_value=100, format="%.0f%%"),
+            "Source": st.column_config.TextColumn(width="large"),
+        },
+    )
+
+
 def result_detail(r, left_label: str, right_label: str) -> None:
     icon = STATUS_ICON.get(r.status, ":material/help:")
     with st.container(border=True):

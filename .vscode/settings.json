@@ -1,0 +1,7 @@
+{
+    "python.analysis.extraPaths": [
+        "src/common",
+        "src/case1_credit_facilities",
+        "src/case2_account_opening"
+    ]
+}

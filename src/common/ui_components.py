@@ -75,6 +75,37 @@ STATUS_ICON = {
 }
 SEVERITY_LABEL = {"FAIL": "High", "REVIEW": "Medium"}
 
+# Full check descriptions (used in Excel/markdown exports and the detail panel) are
+# too long for compact on-screen tables -- shortened here for display only.
+SHORT_CHECK_LABELS = {
+    # Case 1: Credit Facilities
+    "Facility amount matches approved Credit Paper": "Facility amount",
+    "Facility purpose matches approved Credit Paper": "Facility purpose",
+    "Pricing / profit rate matches approved Credit Paper": "Pricing / profit rate",
+    "Facility tenure matches approved Credit Paper": "Facility tenure",
+    "Approved special conditions reflected in LO": "Special conditions",
+    "Customer name/registration number match": "Customer name / reg. no.",
+    "Customer address matches approved Credit Paper": "Customer address",
+    "Guarantor identity matches approved Credit Paper": "Guarantor identity",
+    "Letterhead matches facility book (Conventional/Islamic)": "Letterhead vs facility book",
+    "LO issued before Maker-Checker approval completed": "LO issuance timing",
+    "Evidence of Maker-Checker review and approval": "Maker-Checker approval",
+    # Case 2: Account Opening
+    "Customer name in CLS matches SSM": "Customer name",
+    "Registration number in CLS matches SSM": "Registration number",
+    "Registered address in CLS matches SSM": "Registered address",
+    "Business nature in CLS matches SSM": "Business nature",
+    "Date of incorporation matches SSM records": "Date of incorporation",
+    "Director information matches Application Form / SSM": "Director information",
+    "Guarantor information in CLS matches Guarantor Form": "Guarantor information",
+    "CCRIS facility amount matches CCRIS Form": "CCRIS facility amount",
+    "Mandatory CIF supporting documents are present": "Required documents",
+}
+
+
+def short_label(check: str) -> str:
+    return SHORT_CHECK_LABELS.get(check, check)
+
 
 def inject_style() -> None:
     st.markdown(_STYLE, unsafe_allow_html=True)
@@ -134,32 +165,34 @@ def selectable_table(df: pd.DataFrame, column_config: dict, key: str):
     return 0
 
 
-def exceptions_dataframe(results, side: str) -> pd.DataFrame:
+def exceptions_dataframe(exceptions: list, side: str) -> pd.DataFrame:
     value_attr = f"{side}_value"
     rows = [
         {
             "KCT": r.kct,
-            "Check": r.check,
+            "Check": short_label(r.check),
             "Status": r.status,
             "Confidence": confidence_text(r.confidence),
-            "Value": _preview(getattr(r, value_attr), limit=80),
-            "Note": _preview(r.note, limit=120),
+            "Value": _preview(getattr(r, value_attr), limit=60),
+            "Note": _preview(r.note, limit=90),
         }
-        for r in results
-        if r.status in ("FAIL", "REVIEW")
+        for r in exceptions
     ]
     return pd.DataFrame(rows, columns=["KCT", "Check", "Status", "Confidence", "Value", "Note"])
 
 
-def exceptions_table(results, side: str, key: str) -> None:
-    df = exceptions_dataframe(results, side)
-    if df.empty:
+def exceptions_table(results, side: str, key: str, left_label: str = "Value A", right_label: str = "Value B") -> None:
+    exceptions = [r for r in results if r.status in ("FAIL", "REVIEW")]
+    if not exceptions:
         st.caption("No exceptions on this side.")
         return
-    st.dataframe(
+    df = exceptions_dataframe(exceptions, side)
+    event = st.dataframe(
         df,
         hide_index=True,
         width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
         key=key,
         column_config={
             "KCT": st.column_config.TextColumn(width="small"),
@@ -167,9 +200,13 @@ def exceptions_table(results, side: str, key: str) -> None:
             "Status": st.column_config.TextColumn(width="small"),
             "Confidence": st.column_config.TextColumn(width="small"),
             "Value": st.column_config.TextColumn(width="medium"),
-            "Note": st.column_config.TextColumn(width="large"),
+            "Note": st.column_config.TextColumn(width="medium"),
         },
     )
+    if event and event.selection and event.selection.rows:
+        result_detail(exceptions[event.selection.rows[0]], left_label, right_label)
+    else:
+        st.caption("Check a row above to see its full mismatch detail.")
 
 
 def flagged_cases_table(df: pd.DataFrame, key: str):

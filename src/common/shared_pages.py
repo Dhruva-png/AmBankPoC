@@ -26,7 +26,7 @@ def _document_field_rows(results, side: str) -> pd.DataFrame:
     value_attr, source_attr = f"{side}_value", f"source_{side}"
     rows = [
         {
-            "Field": r.check,
+            "Field": ui.short_label(r.check),
             "Value": getattr(r, value_attr) or "—",
             "Confidence": r.confidence,
             "Source": getattr(r, source_attr) or "—",
@@ -40,9 +40,13 @@ def _document_field_rows_for_file(results, filename: str) -> pd.DataFrame:
     rows = []
     for r in results:
         if r.source_left and filename in r.source_left:
-            rows.append({"Field": r.check, "Value": r.left_value or "—", "Confidence": r.confidence, "Source": r.source_left})
+            rows.append(
+                {"Field": ui.short_label(r.check), "Value": r.left_value or "—", "Confidence": r.confidence, "Source": r.source_left}
+            )
         if r.source_right and filename in r.source_right:
-            rows.append({"Field": r.check, "Value": r.right_value or "—", "Confidence": r.confidence, "Source": r.source_right})
+            rows.append(
+                {"Field": ui.short_label(r.check), "Value": r.right_value or "—", "Confidence": r.confidence, "Source": r.source_right}
+            )
     return pd.DataFrame(rows, columns=["Field", "Value", "Confidence", "Source"])
 
 
@@ -332,9 +336,9 @@ def render_case_results(
             st.caption("No exceptions -- all controls passed.")
         else:
             st.caption(left_label)
-            ui.exceptions_table(results, "left", key=f"{case_id}_exceptions_left")
+            ui.exceptions_table(results, "left", key=f"{case_id}_exceptions_left", left_label=left_label, right_label=right_label)
             st.caption(right_label)
-            ui.exceptions_table(results, "right", key=f"{case_id}_exceptions_right")
+            ui.exceptions_table(results, "right", key=f"{case_id}_exceptions_right", left_label=left_label, right_label=right_label)
 
     st.subheader("Export")
     overall_status = "FLAGGED" if (counts["FAIL"] or counts["REVIEW"]) else "CLEAR"
@@ -421,7 +425,7 @@ def render_reports(
                 findings_display = pd.DataFrame(
                     {
                         "Severity": case_findings["status"].map(ui.SEVERITY_LABEL),
-                        "Title": case_findings["kct"] + " — " + case_findings["check"],
+                        "Title": case_findings["kct"] + " — " + case_findings["check"].apply(ui.short_label),
                         "Confidence": case_findings["confidence"],
                     }
                 )

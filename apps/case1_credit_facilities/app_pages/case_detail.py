@@ -11,12 +11,6 @@ import shared_pages
 from compare import compare, to_markdown
 from extract_fields import classify_document, extract_credit_paper_fields, extract_lo_fields
 
-APP_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = APP_DIR.parents[1]
-SAMPLE_DIR = REPO_ROOT / "samples" / "case-1-credit-facilities" / "hadyan-sdn-bhd"
-SAMPLE_CP = SAMPLE_DIR / "Credit Paper - AR2025 - Hadyan Sdn Bhd.docx"
-SAMPLE_LO = SAMPLE_DIR / "Letter of Offer - Revise Purpose - Hadyan Sdn Bhd.doc"
-
 DOC_LABELS = {"credit_paper": "Credit Paper", "letter_of_offer": "Letter of Offer"}
 CATEGORY_LABELS = {**DOC_LABELS, "unknown": "Unclassified"}
 
@@ -56,68 +50,59 @@ st.caption("New case · upload the Credit Paper and Letter of Offer in any order
 if st.button("← Back to cases", type="tertiary"):
     st.switch_page("app_pages/cases.py")
 
-use_sample = st.checkbox("Use committed reference sample (Hadyan Sdn Bhd)", value=False)
-
 cp_path = lo_path = None
-if use_sample:
-    if SAMPLE_CP.exists() and SAMPLE_LO.exists():
-        cp_path, lo_path = str(SAMPLE_CP), str(SAMPLE_LO)
-        st.caption(f"Reference sample: `{SAMPLE_CP.name}` + `{SAMPLE_LO.name}`")
-    else:
-        st.warning("Sample files not found in samples/case-1-credit-facilities/hadyan-sdn-bhd/.")
-else:
-    uploads = st.file_uploader(
-        "Upload documents (Credit Paper + Letter of Offer)",
-        type=["doc", "docx", "pdf"],
-        accept_multiple_files=True,
+uploads = st.file_uploader(
+    "Upload documents (Credit Paper + Letter of Offer)",
+    type=["doc", "docx", "pdf"],
+    accept_multiple_files=True,
+)
+if uploads:
+    signature = tuple((f.name, f.size) for f in uploads)
+    if st.session_state.get("case1_classify_sig") != signature:
+        saved = [(_save_upload(f, Path(f.name).suffix), f.name) for f in uploads]
+        with st.spinner("Classifying uploaded documents..."):
+            classified = []
+            for path, name in saved:
+                try:
+                    category = classify_document(path)
+                except Exception:
+                    category = "unknown"
+                classified.append({"path": path, "name": name, "category": category})
+        st.session_state["case1_classify_sig"] = signature
+        st.session_state["case1_classify_result"] = classified
+    classified = st.session_state["case1_classify_result"]
+
+    display_df = pd.DataFrame(
+        [{"File": c["name"], "Classified type": CATEGORY_LABELS.get(c["category"], "Unclassified")} for c in classified]
     )
-    if uploads:
-        signature = tuple((f.name, f.size) for f in uploads)
-        if st.session_state.get("case1_classify_sig") != signature:
-            saved = [(_save_upload(f, Path(f.name).suffix), f.name) for f in uploads]
-            with st.spinner("Classifying uploaded documents..."):
-                classified = []
-                for path, name in saved:
-                    try:
-                        category = classify_document(path)
-                    except Exception:
-                        category = "unknown"
-                    classified.append({"path": path, "name": name, "category": category})
-            st.session_state["case1_classify_sig"] = signature
-            st.session_state["case1_classify_result"] = classified
-        classified = st.session_state["case1_classify_result"]
+    st.caption("Review the automatic classification and correct it if needed, then run control testing.")
+    edited = st.data_editor(
+        display_df,
+        hide_index=True,
+        width="stretch",
+        disabled=["File"],
+        column_config={
+            "Classified type": st.column_config.SelectboxColumn(
+                options=list(DOC_LABELS.values()) + ["Unclassified"], required=True
+            )
+        },
+        key="case1_classify_editor",
+    )
 
-        display_df = pd.DataFrame(
-            [{"File": c["name"], "Classified type": CATEGORY_LABELS.get(c["category"], "Unclassified")} for c in classified]
-        )
-        st.caption("Review the automatic classification and correct it if needed, then run control testing.")
-        edited = st.data_editor(
-            display_df,
-            hide_index=True,
-            width="stretch",
-            disabled=["File"],
-            column_config={
-                "Classified type": st.column_config.SelectboxColumn(
-                    options=list(DOC_LABELS.values()) + ["Unclassified"], required=True
-                )
-            },
-            key="case1_classify_editor",
-        )
-
-        counts = edited["Classified type"].value_counts().to_dict()
-        problems = [label for label in DOC_LABELS.values() if counts.get(label, 0) != 1]
-        if problems:
-            st.warning(f"Each document type must appear exactly once. Please correct: {', '.join(problems)}.")
-        else:
-            label_to_key = {v: k for k, v in DOC_LABELS.items()}
-            path_by_file = {c["name"]: c["path"] for c in classified}
-            role_by_file = dict(zip(edited["File"], edited["Classified type"]))
-            resolved = {label_to_key[role]: path_by_file[name] for name, role in role_by_file.items() if role in label_to_key}
-            cp_path = resolved.get("credit_paper")
-            lo_path = resolved.get("letter_of_offer")
+    counts = edited["Classified type"].value_counts().to_dict()
+    problems = [label for label in DOC_LABELS.values() if counts.get(label, 0) != 1]
+    if problems:
+        st.warning(f"Each document type must appear exactly once. Please correct: {', '.join(problems)}.")
+    else:
+        label_to_key = {v: k for k, v in DOC_LABELS.items()}
+        path_by_file = {c["name"]: c["path"] for c in classified}
+        role_by_file = dict(zip(edited["File"], edited["Classified type"]))
+        resolved = {label_to_key[role]: path_by_file[name] for name, role in role_by_file.items() if role in label_to_key}
+        cp_path = resolved.get("credit_paper")
+        lo_path = resolved.get("letter_of_offer")
 
 if not (cp_path and lo_path):
-    st.info("Upload the Credit Paper and Letter of Offer (or use the reference sample) to run control testing.", icon=":material/info:")
+    st.info("Upload the Credit Paper and Letter of Offer to run control testing.", icon=":material/info:")
     st.stop()
 
 if st.button("Run control testing", icon=":material/play_arrow:", type="primary"):

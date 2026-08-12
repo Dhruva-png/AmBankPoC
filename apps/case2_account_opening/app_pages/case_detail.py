@@ -18,16 +18,6 @@ from extract_fields import (
     extract_ssm_fields,
 )
 
-APP_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = APP_DIR.parents[1]
-SAMPLE_DIR = REPO_ROOT / "samples" / "case-2-account-opening" / "xyz-sdn-bhd"
-SAMPLE_FILES = {
-    "cls": SAMPLE_DIR / "XYZ Sdn Bhd - CLS Extract.pdf",
-    "email": SAMPLE_DIR / "XYZ Sdn Bhd - Email Request.pdf",
-    "ssm": SAMPLE_DIR / "XYZ Sdn Bhd - SSM Search.pdf",
-    "ccris_app": SAMPLE_DIR / "XYZ Sdn Bhd - CCRIS Application Form.pdf",
-    "guarantor_app": SAMPLE_DIR / "XYZ Sdn Bhd - Guarantor Application Form.pdf",
-}
 DOC_LABELS = {
     "cls": "CLS Extract", "email": "Email Request", "ssm": "SSM Search",
     "ccris_app": "CCRIS Application Form", "guarantor_app": "Guarantor Application Form",
@@ -70,70 +60,68 @@ st.caption("New case · upload the five CIF-creation documents in any order — 
 if st.button("← Back to cases", type="tertiary"):
     st.switch_page("app_pages/cases.py")
 
-use_sample = st.checkbox("Use committed reference sample (XYZ Sdn Bhd)", value=False)
-
 paths = {}
-if use_sample:
-    if all(p.exists() for p in SAMPLE_FILES.values()):
-        paths = {k: str(v) for k, v in SAMPLE_FILES.items()}
-        st.caption("Using the committed reference document set.")
-    else:
-        st.warning("Sample files not found in samples/case-2-account-opening/xyz-sdn-bhd/.")
-else:
-    uploads = st.file_uploader(
-        "Upload documents (CLS Extract, Email Request, SSM Search, CCRIS Application Form, Guarantor Application Form)",
-        type=["pdf"],
-        accept_multiple_files=True,
+uploads = st.file_uploader(
+    "Upload documents (CLS Extract, Email Request, SSM Search, CCRIS Application Form, Guarantor Application Form)",
+    type=["pdf"],
+    accept_multiple_files=True,
+)
+if uploads:
+    signature = tuple((f.name, f.size) for f in uploads)
+    if st.session_state.get("case2_classify_sig") != signature:
+        render_dir = tempfile.mkdtemp(prefix="case2_classify_")
+        saved = [(_save_upload(f, ".pdf"), f.name) for f in uploads]
+        with st.spinner("Classifying uploaded documents..."):
+            classified = []
+            for path, name in saved:
+                try:
+                    category = classify_document(path, render_dir)
+                except Exception:
+                    category = "unknown"
+                classified.append({"path": path, "name": name, "category": category})
+        st.session_state["case2_classify_sig"] = signature
+        st.session_state["case2_classify_result"] = classified
+    classified = st.session_state["case2_classify_result"]
+
+    display_df = pd.DataFrame(
+        [{"File": c["name"], "Classified type": CATEGORY_LABELS.get(c["category"], "Unclassified")} for c in classified]
     )
-    if uploads:
-        signature = tuple((f.name, f.size) for f in uploads)
-        if st.session_state.get("case2_classify_sig") != signature:
-            render_dir = tempfile.mkdtemp(prefix="case2_classify_")
-            saved = [(_save_upload(f, ".pdf"), f.name) for f in uploads]
-            with st.spinner("Classifying uploaded documents..."):
-                classified = []
-                for path, name in saved:
-                    try:
-                        category = classify_document(path, render_dir)
-                    except Exception:
-                        category = "unknown"
-                    classified.append({"path": path, "name": name, "category": category})
-            st.session_state["case2_classify_sig"] = signature
-            st.session_state["case2_classify_result"] = classified
-        classified = st.session_state["case2_classify_result"]
+    st.caption("Review the automatic classification and correct it if needed, then run control testing.")
+    edited = st.data_editor(
+        display_df,
+        hide_index=True,
+        width="stretch",
+        disabled=["File"],
+        column_config={
+            "Classified type": st.column_config.SelectboxColumn(
+                options=list(DOC_LABELS.values()) + ["Unclassified"], required=True
+            )
+        },
+        key="case2_classify_editor",
+    )
 
-        display_df = pd.DataFrame(
-            [{"File": c["name"], "Classified type": CATEGORY_LABELS.get(c["category"], "Unclassified")} for c in classified]
-        )
-        st.caption("Review the automatic classification and correct it if needed, then run control testing.")
-        edited = st.data_editor(
-            display_df,
-            hide_index=True,
-            width="stretch",
-            disabled=["File"],
-            column_config={
-                "Classified type": st.column_config.SelectboxColumn(
-                    options=list(DOC_LABELS.values()) + ["Unclassified"], required=True
-                )
-            },
-            key="case2_classify_editor",
-        )
-
-        counts = edited["Classified type"].value_counts().to_dict()
-        problems = [label for label in DOC_LABELS.values() if counts.get(label, 0) != 1]
-        if problems:
-            st.warning(f"Each document type must appear exactly once. Please correct: {', '.join(problems)}.")
-        else:
-            label_to_key = {v: k for k, v in DOC_LABELS.items()}
-            path_by_file = {c["name"]: c["path"] for c in classified}
-            role_by_file = dict(zip(edited["File"], edited["Classified type"]))
-            for name, role in role_by_file.items():
-                key = label_to_key.get(role)
-                if key:
-                    paths[key] = path_by_file[name]
+    counts = edited["Classified type"].value_counts().to_dict()
+    missing = [label for label in DOC_LABELS.values() if counts.get(label, 0) == 0]
+    if missing:
+        st.warning(f"Missing required document type(s): {', '.join(missing)}.")
+    else:
+        label_to_key = {v: k for k, v in DOC_LABELS.items()}
+        path_by_file = {c["name"]: c["path"] for c in classified}
+        role_by_file = dict(zip(edited["File"], edited["Classified type"]))
+        ignored = []
+        for name, role in role_by_file.items():
+            key = label_to_key.get(role)
+            if not key:
+                continue
+            if key in paths:
+                ignored.append(name)
+                continue
+            paths[key] = path_by_file[name]
+        if ignored:
+            st.caption(f"Ignored {len(ignored)} extra document(s) not needed for this case: {', '.join(ignored)}.")
 
 if len(paths) < 5:
-    st.info("Provide all five documents (or use the reference sample) to run control testing.", icon=":material/info:")
+    st.info("Provide all five documents to run control testing.", icon=":material/info:")
     st.stop()
 
 if st.button("Run control testing", icon=":material/play_arrow:", type="primary"):

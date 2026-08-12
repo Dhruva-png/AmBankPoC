@@ -193,18 +193,15 @@ Below are the automated KCT control testing results for this case:
 
 {results_summary}
 
-Write a concise, professional remarks paragraph (3-5 sentences) for the audit workbook. Assess the overall reliability/authenticity of the reconciled documents based on these findings. Explicitly reference any FAIL exceptions and any REVIEW items needing manual follow-up, and note where confidence was low. Do not simply restate the table -- synthesize a conclusion a reviewer could sign off against. Write in formal audit tone, third person, no headings.
+Write 3-5 short bullet points (each one sentence, under 20 words) for the audit workbook. Cover: overall reliability of the reconciled documents, any FAIL exceptions by KCT number, and any REVIEW items needing manual follow-up. Skip anything that passed cleanly -- only call out what a reviewer needs to act on. No headings, no restating the full table, no filler sentences.
 
 Return strict JSON only:
-{{"remarks": "..."}}"""
+{{"bullets": ["...", "..."]}}"""
 
 
 def generate_case_remarks(results, case_label: str) -> str:
     if not is_configured():
-        return (
-            "Automated remarks unavailable -- AI engine not configured for this run. "
-            "Refer to the Line Items sheet for individual check status, confidence and sourcing."
-        )
+        return "- Automated remarks unavailable -- AI engine not configured for this run."
     lines = []
     for r in results:
         conf = f"{r.confidence:.0f}%" if r.confidence is not None else "n/a"
@@ -212,11 +209,12 @@ def generate_case_remarks(results, case_label: str) -> str:
     try:
         result = chat_json(
             _REMARKS_PROMPT.format(case_label=case_label, results_summary="\n".join(lines)),
-            max_tokens=500,
+            max_tokens=400,
         )
-        return result.get("remarks", "").strip() or "AI remarks generation returned no content."
+        bullets = [b.strip() for b in result.get("bullets", []) if b.strip()]
+        return "\n".join(f"- {b}" for b in bullets) or "- AI remarks generation returned no content."
     except Exception as exc:
-        return f"AI remarks generation failed ({exc}). Refer to the Line Items sheet for detail."
+        return f"- AI remarks generation failed ({exc})."
 
 
 _MODULE_SUMMARY_PROMPT = """You are a senior internal audit reviewer at a bank summarizing the results of an AI-assisted key control testing (KCT) exercise for {module_name}.

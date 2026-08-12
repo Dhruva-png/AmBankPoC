@@ -111,6 +111,108 @@ def _groq_special_conditions_check(cp: dict, lo: dict) -> tuple[str, float | Non
         return REVIEW, None, "AI engine call failed; confirm manually."
 
 
+_ADDRESS_PROMPT = """You are an internal-audit KCT tester at a bank, checking whether a Letter of Offer (LO)'s customer address matches the customer's address on file with the Credit Paper.
+
+LO addressee address:
+\"\"\"{lo_address}\"\"\"
+
+Credit Paper registered address:
+\"\"\"{cp_registered}\"\"\"
+
+Credit Paper business/operating address:
+\"\"\"{cp_business}\"\"\"
+
+Decide whether the LO address refers to the same physical location as EITHER the registered address or the business address on file (companies often correspond via their business/operating address rather than their registered address, and either match is acceptable) -- allowing for formatting, abbreviation, or ordering differences that a human reviewer would accept as consistent. If it matches neither, this is KCT exception #8, "Incorrect customer details in LO".
+
+Return strict JSON only:
+{{"matches": true or false, "confidence": integer 0-100, "reasoning": "one or two sentences"}}"""
+
+
+def _groq_address_check(lo_address: str, cp_registered: str, cp_business: str) -> tuple[str, float | None, str]:
+    if not lo_address:
+        return REVIEW, None, "Could not find an addressee address block in the LO."
+    if not cp_registered and not cp_business:
+        return REVIEW, None, "Could not find a customer address on file in the Credit Paper."
+    if not groq_client.is_configured():
+        return REVIEW, None, (
+            "Customer address could not be auto-verified -- the AI engine is unavailable to "
+            "judge whether the LO address matches the Credit Paper's address on file."
+        )
+    try:
+        result = groq_client.chat_json(
+            _ADDRESS_PROMPT.format(
+                lo_address=lo_address, cp_registered=cp_registered or "(not on file)", cp_business=cp_business or "(not on file)"
+            )
+        )
+        status = PASS if result.get("matches") else FAIL
+        return status, float(result.get("confidence", 50)), result.get("reasoning", "")
+    except Exception:
+        return REVIEW, None, "AI engine call failed; confirm manually."
+
+
+_RE_PRICING = re.compile(r"(\d+(?:\.\d+)?\s*%\s*p\.?\s*a\.?)", re.IGNORECASE)
+
+
+def _pricing_check(cp_pricing: str, lo_text: str) -> tuple[str, float | None, str, str]:
+    m = _RE_PRICING.search(lo_text or "")
+    if not m:
+        return (
+            NA, None,
+            "This LO does not restate a pricing/profit rate clause -- expected for a "
+            "supplemental letter that leaves pricing unchanged, not an exception.",
+            "(not restated in LO)",
+        )
+    lo_pricing = re.sub(r"\s+", "", m.group(1))
+    if _norm_text(lo_pricing) == _norm_text(re.sub(r"\s+", "", cp_pricing or "")):
+        status, note = PASS, "LO pricing matches the approved Credit Paper rate."
+    else:
+        status, note = FAIL, "LO pricing differs from the approved Credit Paper rate."
+    confidence = believable_confidence("KCT-00003", cp_pricing, lo_pricing)
+    return status, confidence, note, lo_pricing
+
+
+_RE_TENURE_HINT = re.compile(r"\b(tenure|tenor|maturity|availability period|review date|\d+\s*months?)\b", re.IGNORECASE)
+
+_TENURE_PROMPT = """You are an internal-audit KCT tester at a bank, checking a Letter of Offer (LO) against the approved Credit Paper for a credit facility.
+
+Approved Credit Paper facility tenure/maturity terms:
+\"\"\"{cp_tenure}\"\"\"
+
+Text found in the issued Letter of Offer referencing tenure/maturity/review date:
+\"\"\"{lo_snippet}\"\"\"
+
+Decide whether the LO's tenure wording is consistent with the approved Credit Paper's tenure terms, or whether this is an unexplained exception -- KCT exception #4, "Tenure differs from approved tenure".
+
+Return strict JSON only:
+{{"consistent": true or false, "confidence": integer 0-100, "reasoning": "one or two sentences"}}"""
+
+
+def _tenure_check(cp_tenure: str, lo_text: str) -> tuple[str, float | None, str, str]:
+    m = _RE_TENURE_HINT.search(lo_text or "")
+    if not m:
+        return (
+            NA, None,
+            "This LO does not restate a tenure/maturity clause -- expected for a supplemental "
+            "letter that leaves tenure unchanged, not an exception.",
+            "(not restated in LO)",
+        )
+    start = max(0, m.start() - 80)
+    snippet = re.sub(r"\s+", " ", lo_text[start : m.end() + 120]).strip()
+    if not groq_client.is_configured():
+        return (
+            REVIEW, None,
+            "LO text contains a tenure reference and the AI engine is unavailable to auto-judge "
+            "whether it matches the approved tenure -- confirm manually.",
+            snippet,
+        )
+    try:
+        result = groq_client.chat_json(_TENURE_PROMPT.format(cp_tenure=cp_tenure, lo_snippet=snippet))
+        status = PASS if result.get("consistent") else FAIL
+        return status, float(result.get("confidence", 50)), result.get("reasoning", ""), snippet
+    except Exception:
+        return REVIEW, None, "AI engine call failed; confirm manually.", snippet
+
+
 def compare(cp: dict, lo: dict) -> list[CheckResult]:
     results: list[CheckResult] = []
     cp_sources, lo_sources = cp.get("sources", {}), lo.get("sources", {})
@@ -147,23 +249,21 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
     )
 
     cp_pricing = facility["pricing"] if facility else ""
-    lo_has_rate_ref = "%" in (lo.get("raw_text") or "")
-    if not lo_has_rate_ref:
-        status, note = NA, "This LO is a purpose-revision supplemental letter and does not restate pricing -- expected, not an exception."
-    else:
-        status, note = REVIEW, "LO text contains a rate reference -- confirm it matches the approved pricing."
+    status, confidence, note, lo_pricing = _pricing_check(cp_pricing, lo.get("raw_text") or "")
     results.append(CheckResult(
         "KCT-00003", "Pricing / profit rate matches approved Credit Paper", status, cp_pricing,
-        "(not restated in LO)", note, confidence=None,
-        source_left=cp_sources.get("facilities", ""), source_right="",
+        lo_pricing, note, confidence=confidence,
+        source_left=cp_sources.get("facilities", ""),
+        source_right=f"{Path(lo['source_file']).name} — rate reference" if lo_pricing != "(not restated in LO)" else "",
     ))
 
     cp_tenure = cp.get("term_maturity", "") or cp.get("availability_period", "")
-    status, note = NA, "This LO is a purpose-revision supplemental letter and does not restate tenure -- expected, not an exception."
+    status, confidence, note, lo_tenure = _tenure_check(cp_tenure, lo.get("raw_text") or "")
     results.append(CheckResult(
         "KCT-00004", "Facility tenure matches approved Credit Paper", status, cp_tenure,
-        "(not restated in LO)", note, confidence=None,
-        source_left=cp_sources.get("term_maturity", ""), source_right="",
+        lo_tenure, note, confidence=confidence,
+        source_left=cp_sources.get("term_maturity", ""),
+        source_right=f"{Path(lo['source_file']).name} — tenure reference" if lo_tenure != "(not restated in LO)" else "",
     ))
 
     status, confidence, note = _groq_special_conditions_check(cp, lo)
@@ -194,6 +294,17 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
         f"{lo_name} [{lo_reg}]", note,
         confidence=believable_confidence("Exception#8", cp_customer, lo_name, lo_reg) if status in (PASS, FAIL) else None,
         source_left=cp_sources.get("customer", ""), source_right=lo_sources.get("addressee_name", ""),
+    ))
+
+    cp_registered_addr = cp.get("registered_address", "")
+    cp_business_addr = cp.get("business_address", "")
+    lo_address = lo.get("addressee_address", "")
+    status, confidence, note = _groq_address_check(lo_address, cp_registered_addr, cp_business_addr)
+    results.append(CheckResult(
+        "Exception #8", "Customer address matches approved Credit Paper",
+        status, cp_business_addr or cp_registered_addr, lo_address or "(not found)", note, confidence=confidence,
+        source_left=cp_sources.get("business_address", "") or cp_sources.get("registered_address", ""),
+        source_right=lo_sources.get("addressee_address", ""),
     ))
 
     cp_support = cp.get("support_guarantees", "")

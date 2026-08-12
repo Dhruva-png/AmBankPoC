@@ -158,7 +158,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
     else:
         status, confidence, note = FAIL, believable_confidence("KCT-00007-fail", ccris_amount_digits, cls_amount_digits), "CCRIS Form facility amount does not match the CLS facility amount."
     results.append(CheckResult(
-        "KCT-00007", "CCRIS information matches CCRIS Form", status,
+        "KCT-00007", "CCRIS facility amount matches CCRIS Form", status,
         ccris_app.get("facility_1_amount_applied", ""), f"RM{cls.get('facility_amount', '')} (ACF, purpose code {cls.get('purpose_code', '')})",
         note, confidence,
         source_left=ccris_src.get("facility_1_amount_applied", ""), source_right=cls_src.get("facility_amount", ""),

@@ -38,6 +38,24 @@ def _find_principal_terms_table(doc):
     return None
 
 
+def _find_basic_info_table(doc):
+    for table in doc.tables:
+        if len(table.rows) > 1 and "CUSTOMER NAME" in table.rows[1].cells[0].text.upper():
+            return table
+    return None
+
+
+def _parse_address_cell(cell_text: str) -> str:
+    lines = [ln.strip() for ln in cell_text.split("\n") if ln.strip()]
+    if len(lines) < 2:
+        return ""
+    parts = [lines[1]]
+    for ln in lines[2:]:
+        if ln.upper().startswith(("POSTCODE", "STATE")):
+            parts.append(ln)
+    return ", ".join(parts)
+
+
 def _find_facility_limit_tables(doc):
     tables = []
     for table in doc.tables:
@@ -100,8 +118,16 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
     for limit_table in _find_facility_limit_tables(doc):
         facilities.extend(extract_facility_limits(limit_table))
 
+    registered_address = business_address = ""
+    basic_info_table = _find_basic_info_table(doc)
+    if basic_info_table is not None and len(basic_info_table.rows) > 2:
+        addr_row = basic_info_table.rows[2]
+        registered_address = _parse_address_cell(addr_row.cells[0].text)
+        business_address = _parse_address_cell(addr_row.cells[1].text)
+
     terms_source = f"{doc_name} — Principal Terms and Conditions table"
     limits_source = f"{doc_name} — Facility limit table (per book)"
+    basic_info_source = f"{doc_name} — Basic Information block"
 
     return {
         "source_file": str(docx_path),
@@ -115,6 +141,8 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
         "support_guarantees": terms.get("Support (Guarantees)", ""),
         "conditions_precedent": terms.get("Conditions Precedent", ""),
         "special_conditions": terms.get("Covenants & Special Conditions", ""),
+        "registered_address": registered_address,
+        "business_address": business_address,
         "facilities": facilities,
         "sources": {
             "customer": terms_source,
@@ -125,6 +153,8 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
             "support_guarantees": terms_source + ", row 'Support (Guarantees)'",
             "special_conditions": terms_source + ", row 'Covenants & Special Conditions'",
             "facilities": limits_source,
+            "registered_address": basic_info_source + ", 'REGISTERED ADDRESS' row",
+            "business_address": basic_info_source + ", 'BUSINESS ADDRESS' row",
         },
     }
 
@@ -137,6 +167,9 @@ _RE_FACILITY_AMOUNT = re.compile(
 _RE_ADDRESSEE_BLOCK = re.compile(
     r"(?:\n|^)([A-Z][A-Z0-9 &.,'\-]+(?:SDN\.?\s*BHD\.?|BERHAD))\s*"
     r"\[Registration No\.?\s*([\d]+\s*\([\dA-Z\-]+\))\]",
+)
+_RE_ADDRESSEE_ADDRESS = re.compile(
+    r"\[Registration No\.?\s*[\d]+\s*\([\dA-Z\-]+\)\]\s*\n(.*?)\n\s*\n", re.DOTALL,
 )
 _RE_ISSUING_ENTITY = re.compile(r"for and on behalf of\s+(AMBANK[A-Z ()]*BERHAD)", re.IGNORECASE)
 _RE_PURPOSE = re.compile(
@@ -179,6 +212,9 @@ def extract_lo_fields(path: str) -> dict:
     addressee_name = m.group(1).strip() if m else ""
     addressee_reg_no = m.group(2).strip() if m else ""
 
+    m = _RE_ADDRESSEE_ADDRESS.search(flat)
+    addressee_address = ", ".join(ln.strip() for ln in m.group(1).split("\n") if ln.strip()) if m else ""
+
     m = _RE_ISSUING_ENTITY.search(flat)
     issuing_entity = m.group(1).strip() if m else ""
 
@@ -202,6 +238,7 @@ def extract_lo_fields(path: str) -> dict:
         "letter_date": letter_date,
         "addressee_name": addressee_name,
         "addressee_registration_no": addressee_reg_no,
+        "addressee_address": addressee_address,
         "issuing_entity": issuing_entity,
         "facility_amount": facility_amount,
         "purpose": purpose,
@@ -211,6 +248,7 @@ def extract_lo_fields(path: str) -> dict:
         "sources": {
             "facility_amount": f"{doc_name} — 'RE:' facility heading line",
             "addressee_name": f"{doc_name} — addressee block",
+            "addressee_address": f"{doc_name} — addressee block",
             "issuing_entity": f"{doc_name} — 'for and on behalf of' signature line",
             "purpose": f"{doc_name} — 'PURPOSE OF THE FACILITY' clause",
             "guarantor_name": f"{doc_name} — guarantor acknowledgment block",

@@ -144,7 +144,7 @@ def extract_email_fields(path: str, render_dir: str) -> dict:
     images = [ai_client.image_file_to_b64(p) for p in pages]
     rejected, confirmed, participants, customer_name = False, False, set(), ""
     for image in images:
-        data = ai_client.vision_json_multi(_EMAIL_THREAD_PROMPT, [image], max_tokens=400)
+        data = ai_client.vision_json_multi(_EMAIL_THREAD_PROMPT, [image], max_tokens=1200)
         rejected = rejected or bool(data.get("has_rejection_cycle"))
         confirmed = confirmed or bool(data.get("has_final_confirmation"))
         participants.update(data.get("participants", []) or [])
@@ -178,7 +178,7 @@ _GUARANTOR_APP_PROMPT = """This is a Guarantor Input Form from a bank CIF creati
 {"guarantor_name": "", "registered_address": "", "bus_reg_no_or_nric": "", "ssm_id": "", "guarantor_to_applicant_relationship": ""}"""
 
 
-def _vision_extract(image_path: str, prompt: str, max_tokens: int = 500) -> dict:
+def _vision_extract(image_path: str, prompt: str, max_tokens: int = 1200) -> dict:
     b64, mime = ai_client.image_file_to_b64(image_path)
     return ai_client.vision_json(prompt, b64, mime, max_tokens=max_tokens)
 
@@ -191,7 +191,7 @@ def extract_ssm_fields(path: str, render_dir: str) -> dict:
     corporate = _vision_extract(pages[0], _SSM_PAGE1_PROMPT) if pages else {}
     directors = {}
     if len(pages) >= 3:
-        directors = _vision_extract(pages[2], _SSM_DIRECTORS_PROMPT, max_tokens=900)
+        directors = _vision_extract(pages[2], _SSM_DIRECTORS_PROMPT, max_tokens=1800)
 
     doc_source_p1 = f"{doc_name} (page 1, AI vision)"
     doc_source_p3 = f"{doc_name} (page 3, AI vision)"

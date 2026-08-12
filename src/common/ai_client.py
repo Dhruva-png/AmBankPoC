@@ -19,8 +19,8 @@ except ImportError:
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
-TEXT_MODEL = "gemini-2.5-flash"
-VISION_MODEL = "gemini-2.5-flash"
+TEXT_MODEL = "gemini-flash-latest"
+VISION_MODEL = "gemini-flash-latest"
 
 REQUEST_TIMEOUT = 45
 
@@ -132,17 +132,18 @@ def _post(model: str, body: dict, max_cycles: int = 3) -> dict:
 
 
 def _response_text(data: dict) -> str:
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    parts = data["candidates"][0]["content"].get("parts", [])
+    return "".join(p.get("text", "") for p in parts)
 
 
-def chat_json(prompt: str, model: str = TEXT_MODEL, max_tokens: int = 800, temperature: float = 0.0) -> dict:
+def chat_json(prompt: str, model: str = TEXT_MODEL, max_tokens: int = 1200, temperature: float = 0.0) -> dict:
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": temperature,
             "maxOutputTokens": max_tokens,
             "responseMimeType": "application/json",
-            "thinkingConfig": {"thinkingBudget": 0},
+            "thinkingConfig": {"thinkingBudget": 1},
         },
     }
     data = _post(model, body)
@@ -154,7 +155,7 @@ def vision_json(
     image_b64: str,
     mime_type: str = "image/png",
     model: str = VISION_MODEL,
-    max_tokens: int = 800,
+    max_tokens: int = 1200,
 ) -> dict:
     return vision_json_multi(prompt, [(image_b64, mime_type)], model=model, max_tokens=max_tokens)
 
@@ -163,7 +164,7 @@ def vision_json_multi(
     prompt: str,
     images: list[tuple[str, str]],
     model: str = VISION_MODEL,
-    max_tokens: int = 800,
+    max_tokens: int = 1200,
 ) -> dict:
     parts: list[dict] = [{"text": prompt}]
     for image_b64, mime_type in images:
@@ -175,7 +176,7 @@ def vision_json_multi(
             "topP": 0.1,
             "maxOutputTokens": max_tokens,
             "responseMimeType": "application/json",
-            "thinkingConfig": {"thinkingBudget": 0},
+            "thinkingConfig": {"thinkingBudget": 1},
         },
     }
     data = _post(model, body)
@@ -211,7 +212,7 @@ def generate_case_remarks(results, case_label: str) -> str:
     try:
         result = chat_json(
             _REMARKS_PROMPT.format(case_label=case_label, results_summary="\n".join(lines)),
-            max_tokens=400,
+            max_tokens=1200,
         )
         bullets = [b.strip() for b in result.get("bullets", []) if b.strip()]
         return "\n".join(f"- {b}" for b in bullets) or "- AI remarks generation returned no content."
@@ -253,7 +254,7 @@ def generate_module_summary(stats: dict, module_name: str) -> str:
                 top_exceptions=stats.get("top_exceptions") or "none",
                 avg_confidence=stats.get("avg_confidence") or "n/a",
             ),
-            max_tokens=500,
+            max_tokens=1200,
         )
         return result.get("summary", "").strip() or "AI summary generation returned no content."
     except Exception as exc:

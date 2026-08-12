@@ -30,7 +30,7 @@ def classify_text(text: str, categories: dict[str, str]) -> str:
     try:
         result = ai_client.chat_json(
             _TEXT_PROMPT.format(categories=_category_lines(categories), text=text[:3000]),
-            max_tokens=50,
+            max_tokens=300,
         )
         category = str(result.get("category", "")).strip()
         return category if category in categories else "unknown"
@@ -44,7 +44,7 @@ def classify_image(image_path: str, categories: dict[str, str]) -> str:
     try:
         b64, mime = ai_client.image_file_to_b64(image_path)
         result = ai_client.vision_json(
-            _VISION_PROMPT.format(categories=_category_lines(categories)), b64, mime, max_tokens=50
+            _VISION_PROMPT.format(categories=_category_lines(categories)), b64, mime, max_tokens=300
         )
         category = str(result.get("category", "")).strip()
         return category if category in categories else "unknown"

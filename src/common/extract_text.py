@@ -8,10 +8,7 @@ def extract_docx_text(path: str) -> str:
     import docx
 
     doc = docx.Document(path)
-    parts: list[str] = []
-    for para in doc.paragraphs:
-        if para.text.strip():
-            parts.append(para.text)
+    parts: list[str] = [para.text for para in doc.paragraphs]
     for ti, table in enumerate(doc.tables):
         parts.append(f"\n[TABLE {ti}]")
         for row in table.rows:

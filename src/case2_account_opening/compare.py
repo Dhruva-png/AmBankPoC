@@ -27,6 +27,18 @@ def _digits(text: str) -> str:
     return re.sub(r"\D", "", text or "")
 
 
+def _amount_digits(text: str) -> str:
+    """Whole-ringgit digit string for a currency amount, ignoring thousands separators
+    and cents. _digits() alone can't be used here: it strips the decimal point along with
+    everything else, so "1000000.00" becomes "100000000" -- two extra digits from the
+    cents that make a genuinely matching amount look like a shorter/mismatched one."""
+    match = re.search(r"\d[\d,]*(?:\.\d+)?", text or "")
+    if not match:
+        return ""
+    whole = match.group(0).split(".")[0].replace(",", "")
+    return whole.lstrip("0") or "0"
+
+
 def _date_parts(text: str) -> tuple:
     return tuple(re.findall(r"\d+", text or ""))
 
@@ -157,13 +169,13 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
         source_left=guarantor_src.get("guarantors", ""), source_right=cls_src.get("guarantors", ""),
     ))
 
-    ccris_amount_digits = _digits(ccris_app.get("facility_1_amount_applied", ""))
-    cls_amount_digits = _digits(cls.get("facility_amount", ""))
+    ccris_amount_digits = _amount_digits(ccris_app.get("facility_1_amount_applied", ""))
+    cls_amount_digits = _amount_digits(cls.get("facility_amount", ""))
     if not ccris_amount_digits or not cls_amount_digits:
         status, confidence, note = REVIEW, None, "Could not extract a comparable facility amount from one or both sources."
-    elif ccris_amount_digits.lstrip("0") == cls_amount_digits.lstrip("0"):
+    elif ccris_amount_digits == cls_amount_digits:
         status, confidence, note = PASS, believable_confidence("KCT-00007", ccris_amount_digits), "CCRIS Form facility amount matches the CLS facility amount."
-    elif len(ccris_amount_digits.lstrip("0")) < len(cls_amount_digits.lstrip("0")) - 1:
+    elif len(ccris_amount_digits) < len(cls_amount_digits) - 1:
         status, confidence, note = REVIEW, 30.0, (
             "CCRIS Form shows a shorter number than CLS -- this form writes the amount as "
             "one digit per box in a long mostly-blank row, which the vision model "

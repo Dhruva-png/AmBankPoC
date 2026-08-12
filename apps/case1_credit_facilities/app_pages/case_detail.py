@@ -15,10 +15,13 @@ DOC_LABELS = {"credit_paper": "Credit Paper", "letter_of_offer": "Letter of Offe
 CATEGORY_LABELS = {**DOC_LABELS, "unknown": "Unclassified"}
 
 
-def _save_upload(uploaded_file, suffix: str) -> str:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(uploaded_file.getbuffer())
-        return tmp.name
+def _save_upload(uploaded_file, dest_dir: str) -> str:
+    # Keep the original filename (not a random tempfile name) -- extraction derives each
+    # check's "source" label from this path's basename, so a random name here means every
+    # source reference shown to the auditor is meaningless instead of the real document name.
+    dest = Path(dest_dir) / uploaded_file.name
+    dest.write_bytes(uploaded_file.getbuffer())
+    return str(dest)
 
 
 st.title(":material/description: Case detail")
@@ -59,7 +62,8 @@ uploads = st.file_uploader(
 if uploads:
     signature = tuple((f.name, f.size) for f in uploads)
     if st.session_state.get("case1_classify_sig") != signature:
-        saved = [(_save_upload(f, Path(f.name).suffix), f.name) for f in uploads]
+        upload_dir = tempfile.mkdtemp(prefix="case1_upload_")
+        saved = [(_save_upload(f, upload_dir), f.name) for f in uploads]
         with st.spinner("Classifying uploaded documents..."):
             classified = []
             for path, name in saved:

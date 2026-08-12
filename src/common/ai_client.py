@@ -19,8 +19,8 @@ except ImportError:
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
-TEXT_MODEL = "gemini-flash-latest"
-VISION_MODEL = "gemini-flash-latest"
+TEXT_MODEL = "gemini-3.5-flash-lite"
+VISION_MODEL = "gemini-3.5-flash-lite"
 
 REQUEST_TIMEOUT = 45
 

@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 from extract_fields import extract_credit_paper_fields, extract_lo_fields  # noqa: E402
 from check_result import CheckResult, PASS, FAIL, REVIEW, NA, believable_confidence, to_markdown_table  # noqa: E402
-import groq_client  # noqa: E402
+import ai_client  # noqa: E402
 
 
 def _norm_amount(text: str) -> float | None:
@@ -63,20 +63,20 @@ Return strict JSON only:
 {{"reflected": true or false, "confidence": integer 0-100, "reasoning": "one or two sentences"}}"""
 
 
-def _groq_purpose_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
+def _ai_purpose_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
     cp_purpose, lo_purpose = cp.get("purpose", ""), lo.get("purpose", "")
     if not lo_purpose:
         return REVIEW, None, "Could not find a purpose clause in the LO."
     if _norm_text(cp_purpose) == _norm_text(lo_purpose):
         return PASS, believable_confidence("KCT-00002-exact", cp_purpose), "Purpose wording is identical."
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return REVIEW, None, (
             "Purpose wording differs from the Credit Paper's on-file purpose. The AI engine "
             "is unavailable to auto-judge this -- confirm manually against the CP's approved "
             "revised-purpose text."
         )
     try:
-        result = groq_client.chat_json(
+        result = ai_client.chat_json(
             _PURPOSE_PROMPT.format(
                 cp_purpose=cp_purpose,
                 lo_purpose=lo_purpose,
@@ -89,20 +89,20 @@ def _groq_purpose_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
         return REVIEW, None, "AI engine call failed; confirm manually."
 
 
-def _groq_special_conditions_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
+def _ai_special_conditions_check(cp: dict, lo: dict) -> tuple[str, float | None, str]:
     cp_special = cp.get("special_conditions", "")
     if not cp_special or cp_special.upper() in ("N/A", "NIL"):
         return PASS, believable_confidence("KCT-00005-none", cp_special), "No special conditions on file to check."
     lo_text = lo.get("raw_text", "")
     if _norm_text(cp_special) in _norm_text(lo_text):
         return PASS, believable_confidence("KCT-00005-verbatim", cp_special), "Special condition text appears verbatim in the LO."
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return REVIEW, None, (
             "Approved special condition is not repeated verbatim in this LO, and the AI "
             "engine is unavailable to auto-judge whether it still applies."
         )
     try:
-        result = groq_client.chat_json(
+        result = ai_client.chat_json(
             _SPECIAL_CONDITIONS_PROMPT.format(cp_condition=cp_special, lo_text=lo_text[:4000])
         )
         status = PASS if result.get("reflected") else REVIEW
@@ -128,18 +128,18 @@ Return strict JSON only:
 {{"matches": true or false, "confidence": integer 0-100, "reasoning": "one or two sentences"}}"""
 
 
-def _groq_address_check(lo_address: str, cp_registered: str, cp_business: str) -> tuple[str, float | None, str]:
+def _ai_address_check(lo_address: str, cp_registered: str, cp_business: str) -> tuple[str, float | None, str]:
     if not lo_address:
         return REVIEW, None, "Could not find an addressee address block in the LO."
     if not cp_registered and not cp_business:
         return REVIEW, None, "Could not find a customer address on file in the Credit Paper."
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return REVIEW, None, (
             "Customer address could not be auto-verified -- the AI engine is unavailable to "
             "judge whether the LO address matches the Credit Paper's address on file."
         )
     try:
-        result = groq_client.chat_json(
+        result = ai_client.chat_json(
             _ADDRESS_PROMPT.format(
                 lo_address=lo_address, cp_registered=cp_registered or "(not on file)", cp_business=cp_business or "(not on file)"
             )
@@ -198,7 +198,7 @@ def _tenure_check(cp_tenure: str, lo_text: str) -> tuple[str, float | None, str,
         )
     start = max(0, m.start() - 80)
     snippet = re.sub(r"\s+", " ", lo_text[start : m.end() + 120]).strip()
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return (
             REVIEW, None,
             "LO text contains a tenure reference and the AI engine is unavailable to auto-judge "
@@ -206,7 +206,7 @@ def _tenure_check(cp_tenure: str, lo_text: str) -> tuple[str, float | None, str,
             snippet,
         )
     try:
-        result = groq_client.chat_json(_TENURE_PROMPT.format(cp_tenure=cp_tenure, lo_snippet=snippet))
+        result = ai_client.chat_json(_TENURE_PROMPT.format(cp_tenure=cp_tenure, lo_snippet=snippet))
         status = PASS if result.get("consistent") else FAIL
         return status, float(result.get("confidence", 50)), result.get("reasoning", ""), snippet
     except Exception:
@@ -259,7 +259,7 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
         )
     )
 
-    status, confidence, note = _groq_purpose_check(cp, lo)
+    status, confidence, note = _ai_purpose_check(cp, lo)
     results.append(
         CheckResult(
             "KCT-00002", "Facility purpose matches approved Credit Paper", status,
@@ -286,7 +286,7 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
         source_right=f"{Path(lo['source_file']).name} — tenure reference" if lo_tenure != "(not restated in LO)" else "",
     ))
 
-    status, confidence, note = _groq_special_conditions_check(cp, lo)
+    status, confidence, note = _ai_special_conditions_check(cp, lo)
     results.append(CheckResult(
         "KCT-00005", "Approved special conditions reflected in LO", status,
         cp.get("special_conditions", ""), "(see raw LO text)", note, confidence=confidence,
@@ -319,7 +319,7 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
     cp_registered_addr = cp.get("registered_address", "")
     cp_business_addr = cp.get("business_address", "")
     lo_address = lo.get("addressee_address", "")
-    status, confidence, note = _groq_address_check(lo_address, cp_registered_addr, cp_business_addr)
+    status, confidence, note = _ai_address_check(lo_address, cp_registered_addr, cp_business_addr)
     results.append(CheckResult(
         "Exception #8", "Customer address matches approved Credit Paper",
         status, cp_business_addr or cp_registered_addr, lo_address or "(not found)", note, confidence=confidence,
@@ -391,7 +391,7 @@ def to_markdown(cp: dict, lo: dict, results: list[CheckResult]) -> str:
         "",
         f"- Credit Paper: `{cp['source_file']}`",
         f"- Letter of Offer: `{lo['source_file']}`",
-        f"- Semantic checks (purpose, special conditions): {'AI-assisted' if groq_client.is_configured() else 'AI engine unavailable — text-diff heuristic only'}",
+        f"- Semantic checks (purpose, special conditions): {'AI-assisted' if ai_client.is_configured() else 'AI engine unavailable — text-diff heuristic only'}",
         "",
     ]
     return "\n".join(header) + "\n" + to_markdown_table(results, "Credit Paper", "Letter of Offer")

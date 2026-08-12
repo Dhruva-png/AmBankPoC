@@ -7,7 +7,6 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import requests
 
@@ -18,21 +17,20 @@ try:
 except ImportError:
     pass
 
-CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODELS_URL = "https://api.groq.com/openai/v1/models"
+API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
-TEXT_MODEL = "llama-3.3-70b-versatile"
-VISION_MODEL = "qwen/qwen3.6-27b"
+TEXT_MODEL = "gemini-2.5-flash"
+VISION_MODEL = "gemini-2.5-flash"
 
 REQUEST_TIMEOUT = 45
 
 
 def _keys() -> list[str]:
     keys = [
-        os.environ.get("GROQ_API_KEY_1", "").strip(),
-        os.environ.get("GROQ_API_KEY_2", "").strip(),
+        os.environ.get("GEMINI_API_KEY_1", "").strip(),
+        os.environ.get("GEMINI_API_KEY_2", "").strip(),
     ]
-    single = os.environ.get("GROQ_API_KEY", "").strip()
+    single = os.environ.get("GEMINI_API_KEY", "").strip()
     if single:
         keys.append(single)
     return [k for k in keys if k]
@@ -50,11 +48,9 @@ def check_key(key: str) -> tuple[bool, str]:
     if not key:
         return False, "not set"
     try:
-        resp = requests.get(
-            MODELS_URL, headers={"Authorization": f"Bearer {key}"}, timeout=8
-        )
-        if resp.status_code == 401:
-            return False, "rejected (401)"
+        resp = requests.get(f"{API_BASE}/models", headers={"x-goog-api-key": key}, timeout=8)
+        if resp.status_code in (401, 403):
+            return False, f"rejected ({resp.status_code})"
         resp.raise_for_status()
         return True, ""
     except Exception as exc:
@@ -76,7 +72,7 @@ def is_configured() -> bool:
     return bool(_keys())
 
 
-class GroqError(Exception):
+class AIClientError(Exception):
     pass
 
 
@@ -102,18 +98,19 @@ def _extract_json(text: str) -> dict:
 def _post(model: str, body: dict, max_cycles: int = 3) -> dict:
     keys = _keys()
     if not keys:
-        raise GroqError("AI engine is not configured for this environment.")
+        raise AIClientError("AI engine is not configured for this environment.")
 
+    url = f"{API_BASE}/models/{model}:generateContent"
     last_error: Exception | None = None
     for cycle in range(max_cycles):
         rate_limited_wait = 0.0
         for key in keys:
-            headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+            headers = {"x-goog-api-key": key, "Content-Type": "application/json"}
             try:
-                resp = requests.post(CHAT_URL, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
+                resp = requests.post(url, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
                 if resp.status_code == 429:
                     retry_after = float(resp.headers.get("Retry-After", 10))
-                    last_error = GroqError("AI engine is temporarily at capacity, retrying.")
+                    last_error = AIClientError("AI engine is temporarily at capacity, retrying.")
                     rate_limited_wait = max(rate_limited_wait, retry_after)
                     continue
                 resp.raise_for_status()
@@ -124,27 +121,32 @@ def _post(model: str, body: dict, max_cycles: int = 3) -> dict:
                     detail = resp.json().get("error", {}).get("message", "")
                 except Exception:
                     pass
-                last_error = GroqError(f"AI engine request failed ({resp.status_code}). {detail}".strip())
+                last_error = AIClientError(f"AI engine request failed ({resp.status_code}). {detail}".strip())
                 if resp.status_code in (400, 401, 403):
                     raise last_error
             except requests.exceptions.RequestException:
-                last_error = GroqError("AI engine is temporarily unreachable.")
+                last_error = AIClientError("AI engine is temporarily unreachable.")
         if rate_limited_wait and cycle < max_cycles - 1:
             time.sleep(min(rate_limited_wait, 30) + 1)
-    raise GroqError(f"AI engine is currently unavailable. {last_error}")
+    raise AIClientError(f"AI engine is currently unavailable. {last_error}")
+
+
+def _response_text(data: dict) -> str:
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
 def chat_json(prompt: str, model: str = TEXT_MODEL, max_tokens: int = 800, temperature: float = 0.0) -> dict:
     body = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
-        "max_completion_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
     }
     data = _post(model, body)
-    text = data["choices"][0]["message"]["content"]
-    return _extract_json(text)
+    return _extract_json(_response_text(data))
 
 
 def vision_json(
@@ -163,21 +165,21 @@ def vision_json_multi(
     model: str = VISION_MODEL,
     max_tokens: int = 800,
 ) -> dict:
-    content: list[dict] = [{"type": "text", "text": prompt}]
+    parts: list[dict] = [{"text": prompt}]
     for image_b64, mime_type in images:
-        content.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_b64}"}})
+        parts.append({"inline_data": {"mime_type": mime_type, "data": image_b64}})
     body = {
-        "model": model,
-        "messages": [{"role": "user", "content": content}],
-        "temperature": 0.0,
-        "top_p": 0.1,
-        "max_completion_tokens": max_tokens,
-        "reasoning_effort": "none",
-        "response_format": {"type": "json_object"},
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "topP": 0.1,
+            "maxOutputTokens": max_tokens,
+            "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
     }
     data = _post(model, body)
-    text = data["choices"][0]["message"]["content"]
-    return _extract_json(text)
+    return _extract_json(_response_text(data))
 
 
 def image_file_to_b64(path: str) -> tuple[str, str]:

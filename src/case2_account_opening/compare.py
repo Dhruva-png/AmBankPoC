@@ -16,7 +16,7 @@ from extract_fields import (  # noqa: E402
     extract_guarantor_application_fields,
 )
 from check_result import CheckResult, PASS, FAIL, REVIEW, NA, believable_confidence, to_markdown_table  # noqa: E402
-import groq_client  # noqa: E402
+import ai_client  # noqa: E402
 
 
 def _norm(text: str) -> str:
@@ -49,15 +49,15 @@ Return strict JSON only:
 {{"match": true or false, "confidence": integer 0-100, "reasoning": "one or two sentences"}}"""
 
 
-def _groq_match(field: str, source_a: str, value_a: str, source_b: str, value_b: str, context: str = "") -> tuple[str, float | None, str]:
+def _ai_match(field: str, source_a: str, value_a: str, source_b: str, value_b: str, context: str = "") -> tuple[str, float | None, str]:
     if not value_a or not value_b:
         return REVIEW, None, f"Could not extract '{field}' from one or both sources."
     if _norm(value_a) == _norm(value_b):
         return PASS, believable_confidence(field, value_a, value_b), "Values are identical."
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return REVIEW, None, f"'{field}' differs between sources and the AI engine is unavailable to auto-judge this."
     try:
-        result = groq_client.chat_json(
+        result = ai_client.chat_json(
             _MATCH_PROMPT.format(field=field, source_a=source_a, value_a=value_a, source_b=source_b, value_b=value_b, context=context)
         )
         status = PASS if result.get("match") else FAIL
@@ -73,7 +73,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
     ccris_src = ccris_app.get("sources", {})
     guarantor_src = guarantor_app.get("sources", {})
 
-    status, confidence, note = _groq_match(
+    status, confidence, note = _ai_match(
         "Customer Name", "SSM Search", ssm.get("name", ""), "CLS", cls.get("customer_name", "")
     )
     results.append(CheckResult(
@@ -96,7 +96,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
         source_left=ssm_src.get("registration_no", ""), source_right=cls_src.get("registration_no_2", ""),
     ))
 
-    status, confidence, note = _groq_match(
+    status, confidence, note = _ai_match(
         "Registered Address", "SSM Search", ssm.get("registered_address", ""),
         "CLS", cls.get("registered_address", ""),
     )
@@ -106,7 +106,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
         source_left=ssm_src.get("registered_address", ""), source_right=cls_src.get("registered_address", ""),
     ))
 
-    status, confidence, note = _groq_match(
+    status, confidence, note = _ai_match(
         "Business Nature / Industry", "SSM Search", ssm.get("nature_of_business", ""),
         "CLS", cls.get("business_nature", ""),
         context="These may use different classification wording (SSM free text vs. a CLS industry code description) for the same activity.",
@@ -147,7 +147,7 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
 
     cls_guarantors = ", ".join(g.get("short_name", "") for g in cls.get("guarantors", []))
     form_guarantors = ", ".join(g.get("guarantor_name", "") for g in guarantor_app.get("guarantors", []))
-    status, confidence, note = _groq_match(
+    status, confidence, note = _ai_match(
         "Guarantor Names", "Guarantor Application Form", form_guarantors, "CLS facility relationship", cls_guarantors,
         context="Consider whether these could be the same underlying guarantor(s) under a different legal-entity or trading name, or a genuine mismatch.",
     )
@@ -225,7 +225,7 @@ def to_markdown(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_ap
         f"- SSM search: `{ssm['source_file']}`",
         f"- CCRIS application form: `{ccris_app['source_file']}`",
         f"- Guarantor application form: `{guarantor_app['source_file']}`",
-        f"- Semantic checks: {'AI-assisted' if groq_client.is_configured() else 'AI engine unavailable — text-diff heuristic only'}",
+        f"- Semantic checks: {'AI-assisted' if ai_client.is_configured() else 'AI engine unavailable — text-diff heuristic only'}",
         "",
     ]
     return "\n".join(header) + "\n" + to_markdown_table(results, "Value A", "Value B")

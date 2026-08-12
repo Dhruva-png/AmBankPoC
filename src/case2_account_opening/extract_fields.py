@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 from extract_text import extract_text, render_pdf_first_page, render_pdf_pages_to_images  # noqa: E402
 from classify import classify_image  # noqa: E402
-import groq_client  # noqa: E402
+import ai_client  # noqa: E402
 
 VISION_SCALE = 1.3
 
@@ -134,17 +134,17 @@ Return strict JSON only, using false/[]/"" for anything not visible on this page
 def extract_email_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     doc_source = f"{doc_name} (AI vision, all pages)"
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return {
             "source_file": str(path), "error": "AI engine not configured",
             "has_rejection_cycle": None, "has_final_confirmation": None,
             "participants": [], "customer_name": "", "sources": {},
         }
     pages = _render_for_vision(path, render_dir)
-    images = [groq_client.image_file_to_b64(p) for p in pages]
+    images = [ai_client.image_file_to_b64(p) for p in pages]
     rejected, confirmed, participants, customer_name = False, False, set(), ""
     for image in images:
-        data = groq_client.vision_json_multi(_EMAIL_THREAD_PROMPT, [image], max_tokens=400)
+        data = ai_client.vision_json_multi(_EMAIL_THREAD_PROMPT, [image], max_tokens=400)
         rejected = rejected or bool(data.get("has_rejection_cycle"))
         confirmed = confirmed or bool(data.get("has_final_confirmation"))
         participants.update(data.get("participants", []) or [])
@@ -179,13 +179,13 @@ _GUARANTOR_APP_PROMPT = """This is a Guarantor Input Form from a bank CIF creati
 
 
 def _vision_extract(image_path: str, prompt: str, max_tokens: int = 500) -> dict:
-    b64, mime = groq_client.image_file_to_b64(image_path)
-    return groq_client.vision_json(prompt, b64, mime, max_tokens=max_tokens)
+    b64, mime = ai_client.image_file_to_b64(image_path)
+    return ai_client.vision_json(prompt, b64, mime, max_tokens=max_tokens)
 
 
 def extract_ssm_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
     pages = _render_for_vision(path, render_dir)
     corporate = _vision_extract(pages[0], _SSM_PAGE1_PROMPT) if pages else {}
@@ -214,7 +214,7 @@ def extract_ssm_fields(path: str, render_dir: str) -> dict:
 
 def extract_ccris_application_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
     pages = _render_for_vision(path, render_dir)
     data = _vision_extract(pages[0], _CCRIS_APP_PROMPT) if pages else {}
@@ -234,7 +234,7 @@ def extract_ccris_application_fields(path: str, render_dir: str) -> dict:
 
 def extract_guarantor_application_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
-    if not groq_client.is_configured():
+    if not ai_client.is_configured():
         return {"source_file": str(path), "error": "AI engine not configured", "guarantors": [], "sources": {}}
     pages = _render_for_vision(path, render_dir)
     guarantors = []

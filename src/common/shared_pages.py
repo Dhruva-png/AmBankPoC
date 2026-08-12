@@ -6,11 +6,11 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
+import ai_client
 import case_store
 import charts
 import document_preview
 import excel_export
-import groq_client
 import ui_components as ui
 
 
@@ -148,7 +148,7 @@ def render_dashboard(case_type: str, module_name: str, case_detail_page: str) ->
     with st.container(horizontal=True):
         if st.button("Generate / regenerate final report", icon=":material/refresh:", key=f"{case_type}_dash_gen"):
             with st.spinner("Synthesizing executive summary..."):
-                st.session_state[f"module_summary_{case_type}"] = groq_client.generate_module_summary(stats, module_name)
+                st.session_state[f"module_summary_{case_type}"] = ai_client.generate_module_summary(stats, module_name)
         if not df.empty:
             st.download_button(
                 "Download consolidated Excel",
@@ -393,7 +393,7 @@ def render_reports(
             st.subheader("Executive summary")
             if st.button("Generate / regenerate report", icon=":material/refresh:", key=f"{case_type}_reports_gen"):
                 with st.spinner("Synthesizing executive summary..."):
-                    st.session_state[f"module_summary_{case_type}"] = groq_client.generate_module_summary(stats, module_name)
+                    st.session_state[f"module_summary_{case_type}"] = ai_client.generate_module_summary(stats, module_name)
                 st.rerun()
         summary = st.session_state.get(f"module_summary_{case_type}")
         if summary:

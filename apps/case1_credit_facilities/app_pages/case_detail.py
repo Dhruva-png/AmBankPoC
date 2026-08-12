@@ -5,8 +5,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+import ai_client
 import case_store
-import groq_client
 import shared_pages
 from compare import compare, to_markdown
 from extract_fields import classify_document, extract_credit_paper_fields, extract_lo_fields
@@ -116,7 +116,7 @@ if st.button("Run control testing", icon=":material/play_arrow:", type="primary"
             st.error(f"Extraction/comparison failed: {exc}")
             st.stop()
     with st.spinner("Generating remarks..."):
-        remarks = groq_client.generate_case_remarks(
+        remarks = ai_client.generate_case_remarks(
             results, f"Case 1 (Credit Facilities) — {cp.get('customer', 'Unknown Customer')}"
         )
     elapsed = time.time() - started

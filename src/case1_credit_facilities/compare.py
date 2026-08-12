@@ -28,7 +28,7 @@ def _norm_text(text: str) -> str:
 
 def _pick_facility_for_lo(cp: dict, lo_amount_rm: float | None) -> dict | None:
     for facility in cp["facilities"]:
-        limits = [float(x.replace(",", "")) * 1000 for x in re.findall(r"[\d,]+", facility["limit_rm000"])]
+        limits = [float(x.replace(",", "")) * 1000 for x in re.findall(r"[\d,]+(?:\.\d+)?", facility["limit_rm000"])]
         if lo_amount_rm is not None and any(abs(lo_amount_rm - lim) < 1 for lim in limits):
             return facility
     return cp["facilities"][0] if cp["facilities"] else None
@@ -151,6 +151,12 @@ def _ai_address_check(lo_address: str, cp_registered: str, cp_business: str) -> 
 
 
 _RE_PRICING = re.compile(r"(\d+(?:\.\d+)?\s*%\s*p\.?\s*a\.?)", re.IGNORECASE)
+_RE_PRICING_VALUE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def _pricing_value(text: str) -> float | None:
+    m = _RE_PRICING_VALUE.search(text or "")
+    return float(m.group(1)) if m else None
 
 
 def _pricing_check(cp_pricing: str, lo_text: str) -> tuple[str, float | None, str, str]:
@@ -163,7 +169,10 @@ def _pricing_check(cp_pricing: str, lo_text: str) -> tuple[str, float | None, st
             "(not restated in LO)",
         )
     lo_pricing = re.sub(r"\s+", "", m.group(1))
-    if _norm_text(lo_pricing) == _norm_text(re.sub(r"\s+", "", cp_pricing or "")):
+    # Compare the numeric rate, not the raw string -- "6.5% p.a." and "6.50% p.a." are the
+    # same rate but would never match as strings, wrongly flagging a genuine PASS as FAIL.
+    cp_value, lo_value = _pricing_value(cp_pricing), _pricing_value(lo_pricing)
+    if cp_value is not None and lo_value is not None and abs(cp_value - lo_value) < 0.001:
         status, note = PASS, "LO pricing matches the approved Credit Paper rate."
     else:
         status, note = FAIL, "LO pricing differs from the approved Credit Paper rate."
@@ -240,7 +249,7 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
     facility = _pick_facility_for_lo(cp, lo_amount)
 
     cp_limit_text = facility["limit_rm000"] if facility else ""
-    cp_limits_rm = [float(x.replace(",", "")) * 1000 for x in re.findall(r"[\d,]+", cp_limit_text)]
+    cp_limits_rm = [float(x.replace(",", "")) * 1000 for x in re.findall(r"[\d,]+(?:\.\d+)?", cp_limit_text)]
     if lo_amount is None:
         status, note = REVIEW, "Could not find a facility amount in the LO text."
     elif not cp_limits_rm:

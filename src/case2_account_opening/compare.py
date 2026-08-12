@@ -40,7 +40,10 @@ def _amount_digits(text: str) -> str:
 
 
 def _date_parts(text: str) -> tuple:
-    return tuple(re.findall(r"\d+", text or ""))
+    # int() normalizes leading zeros so "05-02-1990" and "5-2-1990" compare equal --
+    # comparing the raw digit-run strings would wrongly FAIL two identical dates that
+    # just came from sources with different zero-padding conventions.
+    return tuple(str(int(n)) for n in re.findall(r"\d+", text or ""))
 
 
 _MATCH_PROMPT = """You are an internal-audit KCT tester at a bank, cross-checking corporate customer data captured in two different sources during CIF (Customer Information File) creation.

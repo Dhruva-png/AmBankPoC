@@ -109,7 +109,7 @@ def status_badge(status: str) -> None:
 
 
 def confidence_text(score) -> str:
-    return f"{score:.0f}%" if score is not None else "—"
+    return f"{score:.0f}%" if score is not None and not pd.isna(score) else "—"
 
 
 def _preview(value: str, limit: int = 60) -> str:
@@ -134,50 +134,63 @@ def selectable_table(df: pd.DataFrame, column_config: dict, key: str):
     return 0
 
 
-def results_dataframe(results, left_label: str = "Value A", right_label: str = "Value B") -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "KCT": r.kct,
-                "Check": r.check,
-                "Status": r.status,
-                "Confidence": r.confidence,
-                left_label: _preview(r.left_value),
-                right_label: _preview(r.right_value),
-            }
-            for r in results
-        ]
+def exceptions_dataframe(results, side: str) -> pd.DataFrame:
+    value_attr = f"{side}_value"
+    rows = [
+        {
+            "KCT": r.kct,
+            "Check": r.check,
+            "Status": r.status,
+            "Confidence": confidence_text(r.confidence),
+            "Value": _preview(getattr(r, value_attr), limit=80),
+            "Note": _preview(r.note, limit=120),
+        }
+        for r in results
+        if r.status in ("FAIL", "REVIEW")
+    ]
+    return pd.DataFrame(rows, columns=["KCT", "Check", "Status", "Confidence", "Value", "Note"])
+
+
+def exceptions_table(results, side: str, key: str) -> None:
+    df = exceptions_dataframe(results, side)
+    if df.empty:
+        st.caption("No exceptions on this side.")
+        return
+    st.dataframe(
+        df,
+        hide_index=True,
+        width="stretch",
+        key=key,
+        column_config={
+            "KCT": st.column_config.TextColumn(width="small"),
+            "Check": st.column_config.TextColumn(width="medium"),
+            "Status": st.column_config.TextColumn(width="small"),
+            "Confidence": st.column_config.TextColumn(width="small"),
+            "Value": st.column_config.TextColumn(width="medium"),
+            "Note": st.column_config.TextColumn(width="large"),
+        },
     )
 
 
-def results_table(results, key: str, left_label: str = "Value A", right_label: str = "Value B"):
-    df = results_dataframe(results, left_label, right_label)
-    column_config = {
-        "KCT": st.column_config.TextColumn(width="small"),
-        "Check": st.column_config.TextColumn(width="large"),
-        "Status": st.column_config.TextColumn(width="small"),
-        "Confidence": st.column_config.ProgressColumn(width="small", min_value=0, max_value=100, format="%.0f%%"),
-        left_label: st.column_config.TextColumn(width="medium"),
-        right_label: st.column_config.TextColumn(width="medium"),
-    }
-    return selectable_table(df, column_config, key)
-
-
 def flagged_cases_table(df: pd.DataFrame, key: str):
+    df = df.copy()
+    df["Confidence"] = df["Confidence"].apply(confidence_text)
     column_config = {
         "Case": st.column_config.TextColumn(width="medium"),
         "Recommendation": st.column_config.TextColumn(width="medium"),
-        "Confidence": st.column_config.ProgressColumn(width="medium", min_value=0, max_value=100, format="%.0f%%"),
+        "Confidence": st.column_config.TextColumn(width="small"),
         "Findings": st.column_config.NumberColumn(width="small"),
     }
     return selectable_table(df, column_config, key)
 
 
 def findings_table(df: pd.DataFrame, key: str):
+    df = df.copy()
+    df["Confidence"] = df["Confidence"].apply(confidence_text)
     column_config = {
         "Severity": st.column_config.TextColumn(width="small"),
         "Title": st.column_config.TextColumn(width="large"),
-        "Confidence": st.column_config.ProgressColumn(width="medium", min_value=0, max_value=100, format="%.0f%%"),
+        "Confidence": st.column_config.TextColumn(width="small"),
     }
     return selectable_table(df, column_config, key)
 
@@ -223,6 +236,8 @@ def field_extraction_table(rows: pd.DataFrame, key: str) -> None:
     if rows.empty:
         st.caption("No fields extracted from this document.")
         return
+    rows = rows.copy()
+    rows["Confidence"] = rows["Confidence"].apply(confidence_text)
     st.dataframe(
         rows,
         hide_index=True,
@@ -231,7 +246,7 @@ def field_extraction_table(rows: pd.DataFrame, key: str) -> None:
         column_config={
             "Field": st.column_config.TextColumn(width="medium"),
             "Value": st.column_config.TextColumn(width="large"),
-            "Confidence": st.column_config.ProgressColumn(width="small", min_value=0, max_value=100, format="%.0f%%"),
+            "Confidence": st.column_config.TextColumn(width="small"),
             "Source": st.column_config.TextColumn(width="large"),
         },
     )

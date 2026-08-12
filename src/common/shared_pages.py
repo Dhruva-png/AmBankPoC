@@ -49,7 +49,6 @@ def _document_field_rows_for_file(results, filename: str) -> pd.DataFrame:
 def _render_document_extraction(case_id: str, documents: list[dict], results) -> None:
     render_root = str(case_store.document_dir(case_id) / "_pages")
     st.subheader("Document extraction")
-    st.caption("Source documents alongside the fields extracted from each, with confidence and page-based sourcing.")
 
     if len(documents) == 2:
         preview_cols = st.columns(2)
@@ -61,7 +60,7 @@ def _render_document_extraction(case_id: str, documents: list[dict], results) ->
         data_cols = st.columns(2)
         for col, doc, side in zip(data_cols, documents, ("left", "right")):
             with col:
-                st.caption(f"{doc.get('label', '')} extracted fields")
+                st.caption(doc.get("label", ""))
                 ui.field_extraction_table(_document_field_rows(results, side), key=f"{case_id}_{side}_fields")
     else:
         tabs = st.tabs([d.get("label", d["filename"]) for d in documents])
@@ -73,7 +72,6 @@ def _render_document_extraction(case_id: str, documents: list[dict], results) ->
                 with col1:
                     ui.document_preview_panel(doc.get("label", ""), doc["filename"], pages, key=f"{case_id}_{doc['filename']}_preview")
                 with col2:
-                    st.caption("Extracted fields sourced from this document")
                     ui.field_extraction_table(
                         _document_field_rows_for_file(results, doc["filename"]), key=f"{case_id}_{doc['filename']}_fields"
                     )
@@ -329,16 +327,14 @@ def render_case_results(
         st.write(remarks)
 
     with st.container(border=True):
-        st.subheader("Control checklist")
-        st.caption(
-            "Every control check in one table, sortable by clicking a column header — "
-            "select a row to see its full evidence, sourcing and reasoning."
-        )
-        idx = ui.results_table(results, key=f"{case_id}_grid", left_label=left_label, right_label=right_label)
-        if idx is not None:
-            ui.result_detail(results[idx], left_label, right_label)
+        st.subheader("Exceptions")
+        if not (counts["FAIL"] or counts["REVIEW"]):
+            st.caption("No exceptions -- all controls passed.")
         else:
-            st.caption("Select a row above to see its full detail.")
+            st.caption(left_label)
+            ui.exceptions_table(results, "left", key=f"{case_id}_exceptions_left")
+            st.caption(right_label)
+            ui.exceptions_table(results, "right", key=f"{case_id}_exceptions_right")
 
     st.subheader("Export")
     overall_status = "FLAGGED" if (counts["FAIL"] or counts["REVIEW"]) else "CLEAR"
@@ -410,7 +406,7 @@ def render_reports(
         if case_summary.empty:
             st.caption("No cases currently have exceptions.")
         else:
-            st.caption("Select a case for its findings, sorted by severity — then select a finding for its full detail.")
+            st.caption("Select a case, then a finding, for full detail.")
             c_idx = ui.flagged_cases_table(case_summary, key=f"{case_type}_flagged_cases")
             if c_idx is not None:
                 case_id = case_summary.iloc[c_idx]["Case"]
@@ -421,11 +417,7 @@ def render_reports(
                 )
                 n_high = int((case_findings["status"] == "FAIL").sum())
                 n_medium = int((case_findings["status"] == "REVIEW").sum())
-                most_significant = case_findings.iloc[0]["check"] if not case_findings.empty else ""
-                st.caption(
-                    f"{len(case_findings)} finding(s) identified ({n_high} high-severity, {n_medium} medium-severity). "
-                    f'Most significant: "{most_significant}".'
-                )
+                st.caption(f"{len(case_findings)} finding(s) — {n_high} high, {n_medium} medium.")
                 findings_display = pd.DataFrame(
                     {
                         "Severity": case_findings["status"].map(ui.SEVERITY_LABEL),

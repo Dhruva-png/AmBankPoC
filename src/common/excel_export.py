@@ -35,32 +35,40 @@ def _autosize(ws, widths: dict[int, int]) -> None:
         ws.column_dimensions[get_column_letter(col)].width = width
 
 
-def _line_items_sheet(wb: Workbook, results: list[CheckResult], left_label: str, right_label: str) -> None:
-    ws = wb.create_sheet("Line Items")
-    headers = ["KCT", "Check", "Status", "Confidence", left_label, f"Source ({left_label})", right_label, f"Source ({right_label})", "Note"]
-    ws.append(headers)
-    for col in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col)
+def _exceptions_block(ws, row: int, title: str, results: list[CheckResult], side: str) -> int:
+    value_attr = f"{side}_value"
+    exceptions = [r for r in results if r.status in ("FAIL", "REVIEW")]
+
+    ws.cell(row=row, column=1, value=title).font = Font(bold=True, size=10.5, color="0F1420")
+    row += 1
+
+    if not exceptions:
+        ws.cell(row=row, column=1, value="No exceptions.").font = Font(italic=True, size=9, color="6B7280")
+        return row + 2
+
+    headers = ["KCT", "Check", "Status", "Confidence", "Value", "Note"]
+    for col, header in enumerate(headers, start=1):
+        cell = ws.cell(row=row, column=col, value=header)
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
-        cell.alignment = Alignment(vertical="center")
-    ws.freeze_panes = "A2"
+    row += 1
 
-    for r in results:
-        row = [
+    for r in exceptions:
+        values = [
             r.kct, r.check, r.status,
             f"{r.confidence:.0f}%" if r.confidence is not None else "",
-            r.left_value, r.source_left, r.right_value, r.source_right, r.note,
+            getattr(r, value_attr), r.note,
         ]
-        ws.append(row)
-        row_idx = ws.max_row
-        status_cell = ws.cell(row=row_idx, column=3)
+        for col, value in enumerate(values, start=1):
+            ws.cell(row=row, column=col, value=value)
+        status_cell = ws.cell(row=row, column=3)
         status_cell.fill = STATUS_FILL.get(r.status, STATUS_FILL["N/A"])
         status_cell.font = STATUS_FONT.get(r.status, STATUS_FONT["N/A"])
-        for col in (2, 5, 6, 7, 8, 9):
-            ws.cell(row=row_idx, column=col).alignment = WRAP
+        for col in (2, 5, 6):
+            ws.cell(row=row, column=col).alignment = WRAP
+        row += 1
 
-    _autosize(ws, {1: 14, 2: 34, 3: 10, 4: 12, 5: 36, 6: 30, 7: 36, 8: 30, 9: 48})
+    return row + 1
 
 
 def _full_report_sheet(
@@ -100,39 +108,13 @@ def _full_report_sheet(
     ws.row_dimensions[row].height = 80
     row += 2
 
-    ws.cell(row=row, column=1, value="Detailed Findings").font = SECTION_FONT
+    ws.cell(row=row, column=1, value="Exceptions").font = SECTION_FONT
     row += 2
 
-    for r in results:
-        header_cell = ws.cell(row=row, column=1, value=f"{r.kct} — {r.check}")
-        header_cell.font = Font(bold=True, size=10.5, color="0F1420")
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
-        status_cell = ws.cell(row=row, column=6, value=r.status)
-        status_cell.fill = STATUS_FILL.get(r.status, STATUS_FILL["N/A"])
-        status_cell.font = STATUS_FONT.get(r.status, STATUS_FONT["N/A"])
-        conf_cell = ws.cell(row=row, column=7, value=f"{r.confidence:.0f}%" if r.confidence is not None else "N/A")
-        conf_cell.font = Font(size=9, color="6B7280")
-        row += 1
+    row = _exceptions_block(ws, row, left_label, results, "left")
+    row = _exceptions_block(ws, row, right_label, results, "right")
 
-        ws.cell(row=row, column=1, value=r.note).alignment = WRAP
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=7)
-        row += 1
-
-        ws.cell(row=row, column=1, value=f"{left_label}:").font = LABEL_FONT
-        ws.cell(row=row, column=2, value=r.left_value).alignment = WRAP
-        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=4)
-        ws.cell(row=row, column=5, value=r.source_left).font = Font(size=8, italic=True, color="98A2B3")
-        ws.merge_cells(start_row=row, start_column=5, end_row=row, end_column=7)
-        row += 1
-
-        ws.cell(row=row, column=1, value=f"{right_label}:").font = LABEL_FONT
-        ws.cell(row=row, column=2, value=r.right_value).alignment = WRAP
-        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=4)
-        ws.cell(row=row, column=5, value=r.source_right).font = Font(size=8, italic=True, color="98A2B3")
-        ws.merge_cells(start_row=row, start_column=5, end_row=row, end_column=7)
-        row += 2
-
-    _autosize(ws, {1: 16, 2: 22, 3: 16, 4: 16, 5: 22, 6: 12, 7: 16})
+    _autosize(ws, {1: 16, 2: 30, 3: 10, 4: 12, 5: 34, 6: 48})
 
 
 def build_workbook(
@@ -145,7 +127,6 @@ def build_workbook(
     wb = Workbook()
     wb.remove(wb.active)
     _full_report_sheet(wb, case_meta, results, remarks, left_label, right_label)
-    _line_items_sheet(wb, results, left_label, right_label)
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

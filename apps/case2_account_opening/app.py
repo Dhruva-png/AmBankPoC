@@ -26,7 +26,7 @@ pages = [
 ]
 nav = st.navigation(pages, position="hidden")
 
-ui.sidebar_brand("AmBank KCT Intelligence", "Account Opening Module")
+ui.sidebar_brand("AmBank Document Intelligence Module")
 ui.sidebar_nav(pages, nav.url_path)
 
 nav.run()

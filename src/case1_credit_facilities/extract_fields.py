@@ -56,6 +56,32 @@ def _parse_address_cell(cell_text: str) -> str:
     return ", ".join(parts)
 
 
+_RE_APPROVAL_NAME = re.compile(r"Name\s*:\s*([A-Z][A-Za-z .'\-]+?)(?=\s{2,}|\s*/|\s*CAD Level|\s*\n|$)", re.IGNORECASE)
+
+
+def _extract_approval_names(doc) -> list[str]:
+    table = None
+    for t in doc.tables:
+        for row in t.rows:
+            if any("PREPARED BY" in c.text.upper() for c in row.cells):
+                table = t
+                break
+        if table:
+            break
+    if table is None:
+        return []
+    texts = set()
+    for row in table.rows:
+        for cell in row.cells:
+            if any(
+                key in cell.text.upper()
+                for key in ("PREPARED BY", "REVIEWED BY", "RECOMMENDED BY", "APPROVED BY", "CAD - BUSINESS UNIT")
+            ):
+                texts.add(cell.text)
+    names = _RE_APPROVAL_NAME.findall("\n".join(texts))
+    return sorted({n.strip() for n in names if n.strip()})
+
+
 def _find_facility_limit_tables(doc):
     tables = []
     for table in doc.tables:
@@ -125,9 +151,12 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
         registered_address = _parse_address_cell(addr_row.cells[0].text)
         business_address = _parse_address_cell(addr_row.cells[1].text)
 
+    approval_names = _extract_approval_names(doc)
+
     terms_source = f"{doc_name} — Principal Terms and Conditions table"
     limits_source = f"{doc_name} — Facility limit table (per book)"
     basic_info_source = f"{doc_name} — Basic Information block"
+    approval_source = f"{doc_name} — Prepared/Reviewed/Recommended/Approved-by block"
 
     return {
         "source_file": str(docx_path),
@@ -143,6 +172,7 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
         "special_conditions": terms.get("Covenants & Special Conditions", ""),
         "registered_address": registered_address,
         "business_address": business_address,
+        "approval_names": approval_names,
         "facilities": facilities,
         "sources": {
             "customer": terms_source,
@@ -155,6 +185,7 @@ def extract_credit_paper_fields(docx_path: str) -> dict:
             "facilities": limits_source,
             "registered_address": basic_info_source + ", 'REGISTERED ADDRESS' row",
             "business_address": basic_info_source + ", 'BUSINESS ADDRESS' row",
+            "approval_names": approval_source,
         },
     }
 

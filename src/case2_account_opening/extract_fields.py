@@ -96,6 +96,7 @@ def extract_cls_fields(path: str) -> dict:
 
     facility_amount = find(r"(\d[\d,]*\.\d{2})\s+MYR")
     purpose_code = find(r"Purpose Code\.+:\s*(\d+)")
+    incorporation_date = find(r"Date of birth/Reg\.[\s.]*:?\s*(\d{1,2}/\d{1,2}/\d{4})")
 
     doc_source = f"{doc_name} — CLS core-banking screen extract"
     return {
@@ -111,9 +112,11 @@ def extract_cls_fields(path: str) -> dict:
         "guarantors": guarantors,
         "facility_amount": facility_amount,
         "purpose_code": purpose_code,
+        "incorporation_date": incorporation_date,
         "sources": {k: doc_source for k in (
             "customer_name", "registration_no_1", "registration_no_2", "business_nature",
             "registered_address", "correspondence_address", "guarantors", "facility_amount",
+            "incorporation_date",
         )},
     }
 

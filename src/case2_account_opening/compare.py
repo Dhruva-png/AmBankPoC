@@ -27,6 +27,10 @@ def _digits(text: str) -> str:
     return re.sub(r"\D", "", text or "")
 
 
+def _date_parts(text: str) -> tuple:
+    return tuple(re.findall(r"\d+", text or ""))
+
+
 _MATCH_PROMPT = """You are an internal-audit KCT tester at a bank, cross-checking corporate customer data captured in two different sources during CIF (Customer Information File) creation.
 
 Field being checked: {field}
@@ -113,6 +117,19 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
         source_left=ssm_src.get("nature_of_business", ""), source_right=cls_src.get("business_nature", ""),
     ))
 
+    ssm_incorp, cls_incorp = ssm.get("incorporation_date", ""), cls.get("incorporation_date", "")
+    if not ssm_incorp or not cls_incorp:
+        status, confidence, note = REVIEW, None, "Could not extract a date of incorporation from one or both sources."
+    elif _date_parts(ssm_incorp) == _date_parts(cls_incorp):
+        status, confidence, note = PASS, believable_confidence("Supplementary-DOI", cls_incorp), "Date of incorporation matches between CLS and SSM."
+    else:
+        status, confidence, note = FAIL, believable_confidence("Supplementary-DOI-fail", ssm_incorp, cls_incorp), "Date of incorporation differs between CLS and SSM."
+    results.append(CheckResult(
+        "Supplementary", "Date of incorporation matches SSM records", status,
+        ssm_incorp or "(not found)", cls_incorp or "(not found)", note, confidence,
+        source_left=ssm_src.get("incorporation_date", ""), source_right=cls_src.get("incorporation_date", ""),
+    ))
+
     directors = ssm.get("directors", [])
     if directors:
         status, confidence, note = REVIEW, None, (
@@ -173,23 +190,23 @@ def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: d
     }
     missing = [name for name, present in required_docs.items() if not present]
     if missing:
-        status, confidence, note = FAIL, believable_confidence("KCT-00008-fail", ",".join(missing)), f"Missing or unextractable: {', '.join(missing)}."
+        status, confidence, note = FAIL, believable_confidence("Exception8-fail", ",".join(missing)), f"Missing or unextractable: {', '.join(missing)}."
     else:
-        status, confidence, note = PASS, believable_confidence("KCT-00008", cls.get("customer_name", "")), "All mandatory supporting document types are present."
+        status, confidence, note = PASS, believable_confidence("Exception8", cls.get("customer_name", "")), "All mandatory supporting document types are present."
     results.append(CheckResult(
-        "KCT-00008", "Mandatory CIF supporting documents are present", status,
+        "Exception #8", "Mandatory CIF supporting documents are present", status,
         ", ".join(required_docs.keys()), ", ".join(k for k, v in required_docs.items() if v), note, confidence,
         source_left="Case 2 document set", source_right="Case 2 document set",
     ))
 
     if email.get("has_final_confirmation") and len(email.get("participants", [])) >= 2:
-        status, confidence, note = PASS, believable_confidence("KCT-00009", ",".join(email.get("participants", []))), "Email thread shows a maker/checker exchange ending in a final confirmation."
+        status, confidence, note = PASS, believable_confidence("Exception9", ",".join(email.get("participants", []))), "Email thread shows a maker/checker exchange ending in a final confirmation."
     elif email.get("error"):
         status, confidence, note = REVIEW, None, "AI engine unavailable -- could not analyze the email thread."
     else:
         status, confidence, note = REVIEW, None, "Email thread does not clearly show both a maker and a checker plus a final confirmation -- confirm manually."
     results.append(CheckResult(
-        "KCT-00009", "Evidence of Maker-Checker review and approval", status,
+        "Exception #9", "Evidence of Maker-Checker review and approval", status,
         f"Participants: {', '.join(email.get('participants', []))}",
         f"Rejection cycle: {email.get('has_rejection_cycle')}, Final confirmation: {email.get('has_final_confirmation')}",
         note, confidence,

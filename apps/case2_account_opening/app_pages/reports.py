@@ -8,8 +8,8 @@ EXCEPTIONS = [
     ("5", "Director information differs from Application Form or SSM", "KCT-00005"),
     ("6", "Guarantor information differs from Guarantor Form", "KCT-00006"),
     ("7", "CCRIS information does not match CCRIS Form", "KCT-00007"),
-    ("8", "Mandatory CIF supporting documents are missing", "KCT-00008"),
-    ("9", "CIF approved without sufficient Maker-Checker verification evidence", "KCT-00009"),
+    ("8", "Mandatory CIF supporting documents are missing", "—"),
+    ("9", "CIF approved without sufficient Maker-Checker verification evidence", "—"),
 ]
 
 shared_pages.render_reports("case2", "Account Opening", EXCEPTIONS, "Value A", "Value B")

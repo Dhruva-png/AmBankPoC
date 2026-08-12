@@ -213,6 +213,26 @@ def _tenure_check(cp_tenure: str, lo_text: str) -> tuple[str, float | None, str,
         return REVIEW, None, "AI engine call failed; confirm manually.", snippet
 
 
+def _maker_checker_check(lo_signatories: list[str], cp_approval_names: list[str]) -> tuple[str, float | None, str]:
+    if not lo_signatories:
+        return REVIEW, None, "Could not identify the LO's signatories to cross-check against the Credit Paper's approval chain."
+    if not cp_approval_names:
+        return REVIEW, None, "Could not identify the Credit Paper's approval chain (Prepared/Reviewed/Recommended/Approved by) to cross-check."
+    cp_by_norm = {re.sub(r"\s+", " ", n).strip().upper(): n for n in cp_approval_names}
+    lo_norm = {re.sub(r"\s+", " ", n).strip().upper() for n in lo_signatories}
+    matched = sorted(cp_by_norm[n] for n in lo_norm if n in cp_by_norm)
+    if matched:
+        names = ", ".join(matched)
+        return (
+            PASS, believable_confidence("KCT-00007", names),
+            f"LO is signed by {names}, who appear in the Credit Paper's approval chain -- evidence of Maker-Checker continuity.",
+        )
+    return (
+        REVIEW, None,
+        "LO signatories do not match any name in the Credit Paper's approval chain -- confirm the LO was executed by an authorized approver.",
+    )
+
+
 def compare(cp: dict, lo: dict) -> list[CheckResult]:
     results: list[CheckResult] = []
     cp_sources, lo_sources = cp.get("sources", {}), lo.get("sources", {})
@@ -340,19 +360,26 @@ def compare(cp: dict, lo: dict) -> list[CheckResult]:
     ))
 
     lo_date = lo.get("letter_date", "")
-    if lo_date:
-        status, note = REVIEW, (
-            "LO carries an issuance date, but KCT-00006 (LO issued before approval) and "
-            "KCT-00007 (Maker-Checker evidence) cannot be verified automatically -- the "
-            "Credit Paper's approval date/signatures are in a scanned image, not text. "
-            "Needs manual confirmation."
-        )
-    else:
-        status, note = REVIEW, "Could not find an issuance date on the LO."
     results.append(CheckResult(
-        "KCT-00006 / KCT-00007", "LO issuance date present (informational only -- not an approval-timing check)",
-        status, "(approval date not extractable -- signature image)", lo_date, note, confidence=None,
-        source_left="", source_right=lo_sources.get("letter_date", ""),
+        "KCT-00006", "LO issued before Maker-Checker approval completed",
+        REVIEW,
+        "(no approval date on file -- sign-off fields read 'As per signature date', not an actual date)",
+        lo_date or "(not found)",
+        "The Credit Paper's approval sign-off block does not carry a real calendar date for any "
+        "approver, so LO-vs-approval timing cannot be verified automatically -- confirm manually "
+        "against the signed original.",
+        confidence=None,
+        source_left=cp_sources.get("approval_names", ""), source_right=lo_sources.get("letter_date", ""),
+    ))
+
+    cp_approval_names = cp.get("approval_names", [])
+    lo_signatories = lo.get("signatories", [])
+    status, confidence, note = _maker_checker_check(lo_signatories, cp_approval_names)
+    results.append(CheckResult(
+        "KCT-00007", "Evidence of Maker-Checker review and approval", status,
+        ", ".join(cp_approval_names) or "(not found)", ", ".join(lo_signatories) or "(not found)", note,
+        confidence=confidence,
+        source_left=cp_sources.get("approval_names", ""), source_right=lo_sources.get("signatories", ""),
     ))
 
     return results

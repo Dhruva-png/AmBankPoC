@@ -237,11 +237,13 @@ def render_cases_list(case_type: str, module_name: str, case_detail_page: str) -
             return
 
         for _, row in df.iterrows():
+            case_id = row["case_id"]
             doc_count = len(json.loads(row["documents"]))
+            confirm_key = f"confirm_delete_{case_id}"
             with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center", border=True):
                 info = st.container(gap=None)
                 with info:
-                    st.markdown(f"**{row['case_id']}**")
+                    st.markdown(f"**{case_id}**")
                     st.caption(f"{row['created_at']} · {doc_count} document(s)")
 
                 st.badge(
@@ -250,9 +252,46 @@ def render_cases_list(case_type: str, module_name: str, case_detail_page: str) -
                 )
                 st.caption(f"{row['pass_count']} pass · {row['fail_count']} fail · {row['review_count']} review")
 
-                if st.button("Open", key=f"open_{row['case_id']}", icon=":material/arrow_forward:"):
-                    st.session_state["selected_case_id"] = row["case_id"]
-                    st.switch_page(case_detail_page)
+                with st.container(horizontal=True):
+                    if st.session_state.get(confirm_key):
+                        st.caption("Delete permanently?")
+                        if st.button("Confirm", key=f"confirm_{case_id}", icon=":material/delete_forever:", type="primary"):
+                            case_store.delete_case(case_id)
+                            st.session_state.pop(confirm_key, None)
+                            st.toast(f"Case {case_id} deleted", icon=":material/delete:")
+                            st.rerun()
+                        if st.button("Cancel", key=f"cancel_{case_id}", type="tertiary"):
+                            st.session_state.pop(confirm_key, None)
+                            st.rerun()
+                    else:
+                        if st.button("Delete", key=f"delete_{case_id}", icon=":material/delete:", type="tertiary"):
+                            st.session_state[confirm_key] = True
+                            st.rerun()
+                        if st.button("Open", key=f"open_{case_id}", icon=":material/arrow_forward:"):
+                            st.session_state["selected_case_id"] = case_id
+                            st.switch_page(case_detail_page)
+
+
+def render_case_actions(case_id: str, back_page: str) -> None:
+    confirm_key = f"confirm_delete_detail_{case_id}"
+    with st.container(horizontal=True):
+        if st.button("← Back to cases", type="tertiary", key=f"back_{case_id}"):
+            st.switch_page(back_page)
+        if st.session_state.get(confirm_key):
+            st.caption("Delete this case permanently?")
+            if st.button("Confirm delete", key=f"confirm_detail_{case_id}", icon=":material/delete_forever:", type="primary"):
+                case_store.delete_case(case_id)
+                st.session_state.pop(confirm_key, None)
+                st.session_state["selected_case_id"] = None
+                st.toast(f"Case {case_id} deleted", icon=":material/delete:")
+                st.switch_page(back_page)
+            if st.button("Cancel", key=f"cancel_detail_{case_id}", type="tertiary"):
+                st.session_state.pop(confirm_key, None)
+                st.rerun()
+        else:
+            if st.button("Delete case", key=f"delete_detail_{case_id}", icon=":material/delete:", type="tertiary"):
+                st.session_state[confirm_key] = True
+                st.rerun()
 
 
 def render_case_results(

@@ -127,6 +127,15 @@ def list_cases(case_type: str | None = None) -> pd.DataFrame:
     return df
 
 
+def delete_case(case_id: str) -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute("DELETE FROM cases WHERE case_id = ?", (case_id,))
+    doc_dir = document_dir(case_id)
+    if doc_dir.exists():
+        shutil.rmtree(doc_dir, ignore_errors=True)
+
+
 def get_case(case_id: str) -> dict | None:
     init_db()
     with _connect() as conn:

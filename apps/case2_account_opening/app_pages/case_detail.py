@@ -51,8 +51,7 @@ if case_id:
         st.error("This case no longer exists.")
         st.stop()
     st.caption(f"Existing case · processed {case['created_at']}")
-    if st.button("← Back to cases", type="tertiary"):
-        st.switch_page("app_pages/cases.py")
+    shared_pages.render_case_actions(case_id, "app_pages/cases.py")
     shared_pages.render_case_results(
         case_id=case["case_id"],
         documents=case["documents"],

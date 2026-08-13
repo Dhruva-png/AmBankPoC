@@ -127,7 +127,7 @@ def _full_report_sheet(
         row += 1
     row += 1
 
-    ws.cell(row=row, column=1, value="AI Recommendations").font = SECTION_FONT
+    ws.cell(row=row, column=1, value="AI Summary").font = SECTION_FONT
     row += 1
     formatted_remarks = _format_remarks(remarks)
     ws.cell(row=row, column=1, value=formatted_remarks)
@@ -171,7 +171,9 @@ def _format_duration(seconds) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def build_consolidated_workbook(case_type: str, module_name: str, case_ids: list[str] | None = None) -> bytes:
+def build_consolidated_workbook(
+    case_type: str, module_name: str, case_ids: list[str] | None = None, ai_summary: str = ""
+) -> bytes:
     df = case_store.list_cases(case_type)
     if case_ids is not None:
         df = df[df["case_id"].isin(case_ids)]
@@ -196,7 +198,7 @@ def build_consolidated_workbook(case_type: str, module_name: str, case_ids: list
             row["case_id"], row.get("customer_name") or "", row["created_at"],
             _format_duration(row["processing_seconds"]), CASE_STATUS_LABEL.get(case_status, case_status),
             f"{accuracy:.0f}%" if pd.notna(accuracy) else "—",
-            row["pass_count"], row["fail_count"], row["review_count"], row["na_count"], row["remarks"],
+            row["pass_count"], row["fail_count"], row["review_count"], row["na_count"], _format_remarks(row["remarks"]),
         ])
         status_cell = ws.cell(row=ws.max_row, column=5)
         check_status = _CASE_STATUS_TO_CHECK_STATUS.get(case_status, "N/A")
@@ -227,6 +229,18 @@ def build_consolidated_workbook(case_type: str, module_name: str, case_ids: list
             status_cell.font = STATUS_FONT.get(r.get("status"), STATUS_FONT["N/A"])
             ws2.cell(row=ws2.max_row, column=6).alignment = WRAP
     _autosize(ws2, {1: 26, 2: 14, 3: 34, 4: 10, 5: 12, 6: 48})
+
+    ws3 = wb.create_sheet("AI Summary")
+    ws3.cell(row=1, column=1, value=f"{module_name} — AI Executive Summary").font = TITLE_FONT
+    text = (ai_summary or "").strip() or (
+        'Not yet generated -- click "Generate / regenerate final report" on the Dashboard '
+        "or Reports page, then re-export."
+    )
+    ws3.cell(row=3, column=1, value=text)
+    ws3.cell(row=3, column=1).alignment = WRAP
+    ws3.merge_cells(start_row=3, start_column=1, end_row=3, end_column=6)
+    ws3.row_dimensions[3].height = max(80, 16 * (text.count("\n") + 2))
+    _autosize(ws3, {1: 100})
 
     buffer = io.BytesIO()
     wb.save(buffer)

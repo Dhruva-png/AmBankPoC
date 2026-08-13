@@ -12,6 +12,7 @@ import charts
 import document_preview
 import excel_export
 import ui_components as ui
+from check_result import compute_accuracy
 
 
 @st.cache_data(show_spinner="Rendering document preview...")
@@ -60,21 +61,23 @@ def _render_document_extraction(case_id: str, documents: list[dict], results) ->
             with col:
                 path = case_store.document_path(case_id, doc["filename"])
                 pages = _rendered_pages(str(path), render_root) if path else []
-                ui.document_preview_panel(doc.get("label", ""), doc["filename"], pages, key=f"{case_id}_{doc['filename']}_preview")
+                display_name = ui.clean_filename(doc["filename"], doc.get("label", ""))
+                ui.document_preview_panel(doc.get("label", ""), display_name, pages, key=f"{case_id}_{doc['filename']}_preview")
         data_cols = st.columns(2)
         for col, doc, side in zip(data_cols, documents, ("left", "right")):
             with col:
                 st.caption(doc.get("label", ""))
                 ui.field_extraction_table(_document_field_rows(results, side), key=f"{case_id}_{side}_fields")
     else:
-        tabs = st.tabs([d.get("label", d["filename"]) for d in documents])
+        tabs = st.tabs([d.get("label", "") or ui.clean_filename(d["filename"], "") for d in documents])
         for tab, doc in zip(tabs, documents):
             with tab:
                 path = case_store.document_path(case_id, doc["filename"])
                 pages = _rendered_pages(str(path), render_root) if path else []
+                display_name = ui.clean_filename(doc["filename"], doc.get("label", ""))
                 col1, col2 = st.columns(2)
                 with col1:
-                    ui.document_preview_panel(doc.get("label", ""), doc["filename"], pages, key=f"{case_id}_{doc['filename']}_preview")
+                    ui.document_preview_panel(doc.get("label", ""), display_name, pages, key=f"{case_id}_{doc['filename']}_preview")
                 with col2:
                     ui.field_extraction_table(
                         _document_field_rows_for_file(results, doc["filename"]), key=f"{case_id}_{doc['filename']}_fields"
@@ -154,7 +157,9 @@ def render_dashboard(case_type: str, module_name: str, case_detail_page: str) ->
         if not df.empty:
             st.download_button(
                 "Download consolidated Excel",
-                data=excel_export.build_consolidated_workbook(case_type, module_name),
+                data=excel_export.build_consolidated_workbook(
+                    case_type, module_name, ai_summary=st.session_state.get(f"module_summary_{case_type}", "")
+                ),
                 file_name=f"{case_type}_consolidated_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 icon=":material/download:",
@@ -236,11 +241,11 @@ def _case_management_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         except (TypeError, ValueError):
             uploaded_text = completed_text = row["created_at"]
         status = row.get("status") or ("needs_review" if row["flagged"] else "complete")
+        file_names = ", ".join(ui.clean_filename(d["filename"], d.get("label", "")) for d in documents)
         rows.append(
             {
                 "Case ID": row["case_id"],
-                "Customer": row.get("customer_name") or "—",
-                "File Name": ", ".join(d["filename"] for d in documents) or "—",
+                "File Name": file_names or "—",
                 "Uploaded": uploaded_text,
                 "Completed": completed_text,
                 "Processing Time": ui.format_duration(row["processing_seconds"]),
@@ -249,7 +254,7 @@ def _case_management_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(
-        rows, columns=["Case ID", "Customer", "File Name", "Uploaded", "Completed", "Processing Time", "Status", "Accuracy"]
+        rows, columns=["Case ID", "File Name", "Uploaded", "Completed", "Processing Time", "Status", "Accuracy"]
     )
 
 
@@ -276,14 +281,17 @@ def render_cases_list(case_type: str, module_name: str, case_detail_page: str) -
     with toolbar[1]:
         search = st.text_input(
             "Search cases", key=f"{case_type}_search", label_visibility="collapsed",
-            placeholder="Search by case ID, customer, or file name...",
+            placeholder="Search by case ID or file name...",
         )
     with toolbar[2]:
         export_scope = st.session_state.get(f"{case_type}_export_scope", [])
         export_ids = export_scope or df["case_id"].tolist()
         st.download_button(
             f"Excel ({'selected' if export_scope else 'all'})",
-            data=excel_export.build_consolidated_workbook(case_type, module_name, case_ids=export_ids),
+            data=excel_export.build_consolidated_workbook(
+                case_type, module_name, case_ids=export_ids,
+                ai_summary=st.session_state.get(f"module_summary_{case_type}", ""),
+            ),
             file_name=f"{case_type}_cases_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             icon=":material/download:",
@@ -293,7 +301,6 @@ def render_cases_list(case_type: str, module_name: str, case_detail_page: str) -
     if search:
         mask = (
             display["Case ID"].str.contains(search, case=False, na=False)
-            | display["Customer"].str.contains(search, case=False, na=False)
             | display["File Name"].str.contains(search, case=False, na=False)
         )
         display = display[mask].reset_index(drop=True)
@@ -312,7 +319,6 @@ def render_cases_list(case_type: str, module_name: str, case_detail_page: str) -
             key=f"{case_type}_case_table",
             column_config={
                 "Case ID": st.column_config.TextColumn(width="medium"),
-                "Customer": st.column_config.TextColumn(width="medium"),
                 "File Name": st.column_config.TextColumn(width="large"),
                 "Uploaded": st.column_config.TextColumn(width="small"),
                 "Completed": st.column_config.TextColumn(width="small"),
@@ -403,8 +409,7 @@ def render_case_results(
 
     counts = {s: sum(1 for r in results if r.status == s) for s in ("PASS", "FAIL", "REVIEW", "N/A")}
     status = case_status or (case_store.STATUS_NEEDS_REVIEW if (counts["FAIL"] or counts["REVIEW"]) else case_store.STATUS_COMPLETE)
-    applicable = counts["PASS"] + counts["FAIL"] + counts["REVIEW"]
-    accuracy = round(counts["PASS"] / applicable * 100, 1) if applicable else 100.0
+    accuracy = compute_accuracy(results)
 
     ui.status_banner(counts)
 
@@ -428,7 +433,7 @@ def render_case_results(
         ui.validation_table(results, key=f"{case_id}_validation", left_label=left_label, right_label=right_label)
 
     with st.container(border=True):
-        st.subheader("AI Recommendations")
+        st.subheader("Exceptions")
         ui.ai_summary(remarks)
 
     st.subheader("Export")
@@ -442,7 +447,7 @@ def render_case_results(
                     "module": module_name,
                     "processed_at": processed_at,
                     "processing_time": ui.format_duration(processing_seconds),
-                    "documents": ", ".join(d["filename"] for d in documents),
+                    "documents": ", ".join(ui.clean_filename(d["filename"], d.get("label", "")) for d in documents),
                     "overall_status": ui.CASE_STATUS_LABEL.get(status, status),
                 },
                 results=results,
@@ -529,4 +534,9 @@ def render_reports(
             pd.DataFrame(exceptions, columns=["No.", "Exception", "KCT Reference"]),
             hide_index=True,
             width="stretch",
+            column_config={
+                "No.": st.column_config.TextColumn(width="small"),
+                "Exception": st.column_config.TextColumn(width="large"),
+                "KCT Reference": st.column_config.TextColumn(width="small"),
+            },
         )

@@ -247,20 +247,20 @@ Aggregate statistics across all {total_cases} case(s) processed so far:
 - Most frequent exception(s): {top_exceptions}
 - Average AI confidence across scored checks: {avg_confidence}
 
-Write a concise, professional executive summary (3-5 sentences) for an internal audit reporting pack. Assess overall control effectiveness across the population reviewed, call out the most frequent or significant exception(s), and state whether the population warrants escalation or is broadly satisfactory. Formal audit tone, third person, no headings, do not simply restate the raw numbers.
+Write a concise, professional executive summary as 3-5 short bullet points (each one sentence, under 25 words) for an internal audit reporting pack. Assess overall control effectiveness across the population reviewed, call out the most frequent or significant exception(s), and state whether the population warrants escalation or is broadly satisfactory. Formal audit tone, third person, no headings, do not simply restate the raw numbers.
 
 Return strict JSON only:
-{{"summary": "..."}}"""
+{{"bullets": ["...", "..."]}}"""
 
 
 def generate_module_summary(stats: dict, module_name: str) -> str:
     if not is_configured():
         return (
-            "Automated executive summary unavailable -- AI engine not configured for this run. "
-            "Refer to the KPI figures and case list below for the underlying statistics."
+            "- Automated executive summary unavailable -- AI engine not configured for this run.\n"
+            "- Refer to the KPI figures and case list below for the underlying statistics."
         )
     if not stats.get("total_cases"):
-        return "No cases have been processed yet -- run control testing on at least one case, then generate this report."
+        return "- No cases have been processed yet -- run control testing on at least one case, then generate this report."
     try:
         result = chat_json(
             _MODULE_SUMMARY_PROMPT.format(
@@ -274,6 +274,7 @@ def generate_module_summary(stats: dict, module_name: str) -> str:
             ),
             max_tokens=1200,
         )
-        return result.get("summary", "").strip() or "AI summary generation returned no content."
+        bullets = [b.strip() for b in result.get("bullets", []) if isinstance(b, str) and b.strip()]
+        return "\n".join(f"- {b}" for b in bullets) or "- AI summary generation returned no content."
     except Exception as exc:
-        return f"AI summary generation failed ({exc}). Refer to the KPI figures and case list below for the underlying statistics."
+        return f"- AI summary generation failed ({exc}). Refer to the KPI figures and case list below for the underlying statistics."

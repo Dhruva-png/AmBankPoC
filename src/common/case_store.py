@@ -4,14 +4,13 @@ import json
 import re
 import shutil
 import sqlite3
-import uuid
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
-from check_result import CheckResult
+from check_result import CheckResult, compute_accuracy
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = REPO_ROOT / "data" / "kct_cases.db"
@@ -82,35 +81,76 @@ def init_db() -> None:
             f"UPDATE cases SET status = CASE WHEN flagged = 1 THEN '{STATUS_NEEDS_REVIEW}' "
             f"ELSE '{STATUS_COMPLETE}' END WHERE status IS NULL"
         )
-        # Error cases legitimately have no accuracy (no results were produced) -- the status
-        # backfill above already ran, so every row now has a real status to exclude on.
-        conn.execute(
-            f"UPDATE cases SET accuracy = CASE WHEN (pass_count + fail_count + review_count) > 0 "
-            "THEN ROUND(100.0 * pass_count / (pass_count + fail_count + review_count), 1) "
-            f"ELSE 100.0 END WHERE accuracy IS NULL AND status != '{STATUS_ERROR}'"
-        )
+        # Recompute accuracy for every non-error case with the current formula. This needs
+        # per-check confidence values from results_json, so it has to happen in Python rather
+        # than SQL -- also means it stays correct if the formula changes again later. Error
+        # cases legitimately have no accuracy (no results were produced); the status backfill
+        # above already ran, so every row now has a real status to exclude on.
+        rows = conn.execute(
+            f"SELECT case_id, results_json FROM cases WHERE status != '{STATUS_ERROR}'"
+        ).fetchall()
+        for case_id, results_json in rows:
+            try:
+                results = [CheckResult(**d) for d in json.loads(results_json)]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            conn.execute(
+                "UPDATE cases SET accuracy = ? WHERE case_id = ?", (compute_accuracy(results), case_id)
+            )
 
 
-def _slugify(name: str, max_len: int = 28) -> str:
+def _slugify(name: str, max_len: int = 40) -> str:
     slug = re.sub(r"[^A-Za-z0-9]+", "-", (name or "").strip()).strip("-").upper()
     return slug[:max_len] or "UNKNOWN"
+
+
+def combine_document_names(*names: str, part_len: int = 20) -> str:
+    """Builds an identifying slug from multiple documents' identity fields (e.g. a Credit
+    Paper's customer name and a Letter of Offer's addressee name). Near-duplicate names
+    (the common case, when the documents agree) collapse to one instead of repeating; genuinely
+    different names (e.g. a customer-name mismatch between two sources) both appear, which
+    surfaces the discrepancy right in the case ID."""
+    seen: set[str] = set()
+    parts: list[str] = []
+    for name in names:
+        name = (name or "").strip()
+        # Strip a trailing "(...)" qualifier -- e.g. a Credit Paper's customer field often
+        # reads "Hadyan Sdn Bhd (200101007110 / 542866W)", registration numbers appended.
+        # Without this, that name never dedupes against a cleaner "Hadyan Sdn Bhd" from
+        # another document, and the truncated registration digits leak into the case ID.
+        name = re.sub(r"\s*\([^)]*\)\s*$", "", name).strip()
+        if not name:
+            continue
+        key = re.sub(r"[^A-Z0-9]", "", name.upper())
+        if key and key not in seen:
+            seen.add(key)
+            parts.append(_slugify(name, max_len=part_len))
+    return "-".join(parts)
 
 
 def new_case_id(case_type: str, customer_name: str = "") -> str:
     prefix = _PREFIX.get(case_type, "KC")
     slug = _slugify(customer_name)
-    suffix = uuid.uuid4().hex[:4].upper()
-    return f"{prefix}-{slug}-{suffix}"
+    date_part = datetime.now().strftime("%Y%m%d")
+    base = f"{prefix}-{slug}-{date_part}"
+    with _connect() as conn:
+        taken = {
+            row[0] for row in conn.execute("SELECT case_id FROM cases WHERE case_id LIKE ?", (f"{base}%",)).fetchall()
+        }
+    if base not in taken:
+        return base
+    n = 2
+    while f"{base}-{n}" in taken:
+        n += 1
+    return f"{base}-{n}"
 
 
 def _status_and_accuracy(results: list[CheckResult]) -> tuple[str, float]:
     counts = {s: 0 for s in ("PASS", "FAIL", "REVIEW", "N/A")}
     for r in results:
         counts[r.status] = counts.get(r.status, 0) + 1
-    applicable = counts["PASS"] + counts["FAIL"] + counts["REVIEW"]
-    accuracy = round(counts["PASS"] / applicable * 100, 1) if applicable else 100.0
     status = STATUS_NEEDS_REVIEW if (counts["FAIL"] or counts["REVIEW"]) else STATUS_COMPLETE
-    return status, accuracy
+    return status, compute_accuracy(results)
 
 
 def save_case(

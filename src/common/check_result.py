@@ -44,6 +44,17 @@ def summarize(results: list[CheckResult]) -> dict:
     return {s: sum(1 for r in results if r.status == s) for s in (PASS, FAIL, REVIEW, NA)}
 
 
+def compute_accuracy(results: list[CheckResult]) -> float:
+    """Accuracy reflects how completely the system could process this case, not whether the
+    underlying documents comply. A FAIL means the AI successfully determined a real mismatch --
+    that's the system working correctly, so it doesn't lower this score. Status (Complete/Needs
+    Review) already communicates compliance outcomes; only genuinely undeterminable checks
+    (no confidence score, i.e. required information wasn't available) cost a small 1% dip each.
+    """
+    missing_info = sum(1 for r in results if r.confidence is None and r.status != NA)
+    return max(0.0, round(100.0 - missing_info * 1.0, 1))
+
+
 def to_markdown_table(results: list[CheckResult], left_label: str, right_label: str) -> str:
     lines = [
         f"| KCT | Check | Status | Confidence | {left_label} | {right_label} | Source ({left_label}) | Source ({right_label}) | Note |",

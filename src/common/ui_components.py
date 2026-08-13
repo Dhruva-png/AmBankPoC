@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+
+_TEMP_FILENAME_RE = re.compile(r"^tmp[a-z0-9_]{6,}\.\w+$", re.IGNORECASE)
+
+
+def clean_filename(filename: str, label: str = "") -> str:
+    """Cases created before uploads preserved their real filename have a random tempfile
+    name (e.g. tmpui1exf2z.pdf) baked into stored data -- show the document's label instead
+    of that meaningless string. The real name is unrecoverable at this point, so this is a
+    display-only fallback, not a data fix."""
+    if filename and _TEMP_FILENAME_RE.match(filename):
+        return label or "Document"
+    return filename
 
 _STYLE = """
 <style>
@@ -181,7 +194,8 @@ def selectable_table(df: pd.DataFrame, column_config: dict, key: str):
     return 0
 
 
-CHECK_STATUS_ROW_BG = {"PASS": "#E7F6ED", "FAIL": "#FCEAE9", "REVIEW": "#FBF1DE", "N/A": "#EEF0F3"}
+STATUS_DISPLAY_LABEL = {"PASS": "Pass", "FAIL": "Fail", "REVIEW": "Review", "N/A": "N/A"}
+CHECK_STATUS_ROW_BG = {"Pass": "#E7F6ED", "Fail": "#FCEAE9", "Review": "#FBF1DE", "N/A": "#EEF0F3"}
 
 
 def validation_dataframe(results: list, left_label: str, right_label: str) -> pd.DataFrame:
@@ -189,15 +203,24 @@ def validation_dataframe(results: list, left_label: str, right_label: str) -> pd
         {
             "KCT": r.kct,
             "Check": short_label(r.check),
-            "Status": r.status,
+            "Status": STATUS_DISPLAY_LABEL.get(r.status, r.status),
             "Confidence": confidence_text(r.confidence),
-            left_label: _preview(r.left_value, limit=60),
-            right_label: _preview(r.right_value, limit=60),
-            "Note": _preview(r.note, limit=90),
+            left_label: _preview(r.left_value, limit=110),
+            right_label: _preview(r.right_value, limit=110),
+            "Note": _preview(r.note, limit=160),
         }
         for r in results
     ]
     return pd.DataFrame(rows, columns=["KCT", "Check", "Status", "Confidence", left_label, right_label, "Note"])
+
+
+def validation_legend() -> None:
+    with st.container(horizontal=True):
+        st.caption("Legend:")
+        st.badge("Pass", color="green", icon=":material/check_circle:")
+        st.badge("Review", color="orange", icon=":material/warning:")
+        st.badge("Fail", color="red", icon=":material/error:")
+        st.badge("N/A", color="gray", icon=":material/remove_circle:")
 
 
 def validation_table(results: list, key: str, left_label: str = "Value A", right_label: str = "Value B") -> None:
@@ -220,15 +243,16 @@ def validation_table(results: list, key: str, left_label: str = "Value A", right
             "Check": st.column_config.TextColumn(width="medium"),
             "Status": st.column_config.TextColumn(width="small"),
             "Confidence": st.column_config.TextColumn(width="small"),
-            left_label: st.column_config.TextColumn(width="medium"),
-            right_label: st.column_config.TextColumn(width="medium"),
-            "Note": st.column_config.TextColumn(width="medium"),
+            left_label: st.column_config.TextColumn(width="large"),
+            right_label: st.column_config.TextColumn(width="large"),
+            "Note": st.column_config.TextColumn(width="large"),
         },
     )
     if event and event.selection and event.selection.rows:
         result_detail(results[event.selection.rows[0]], left_label, right_label)
     else:
         st.caption("Check a row above to see its full detail.")
+    validation_legend()
 
 
 def flagged_cases_table(df: pd.DataFrame, key: str):
@@ -269,7 +293,8 @@ def document_chips(documents: list[dict]) -> None:
     with st.container(horizontal=True):
         for doc in documents:
             label = doc.get("label", "")
-            st.badge(f"{label}: {doc['filename']}" if label else doc["filename"], icon=":material/description:")
+            name = clean_filename(doc.get("filename", ""), label)
+            st.badge(f"{label}: {name}" if label and name != label else name, icon=":material/description:")
 
 
 def document_preview_panel(label: str, filename: str, pages: list[str], key: str) -> None:
@@ -297,10 +322,12 @@ def field_extraction_table(rows: pd.DataFrame, key: str) -> None:
         return
     rows = rows.copy()
     rows["Confidence"] = rows["Confidence"].apply(confidence_text)
-    st.dataframe(
+    event = st.dataframe(
         rows,
         hide_index=True,
         width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
         key=key,
         column_config={
             "Field": st.column_config.TextColumn(width="medium"),
@@ -309,6 +336,16 @@ def field_extraction_table(rows: pd.DataFrame, key: str) -> None:
             "Source": st.column_config.TextColumn(width="large"),
         },
     )
+    if event and event.selection and event.selection.rows:
+        r = rows.iloc[event.selection.rows[0]]
+        with st.container(border=True):
+            st.markdown(f"**{r['Field']}**")
+            st.write(r["Value"] or "—")
+            st.caption(f"Confidence {r['Confidence']}")
+            if r["Source"]:
+                st.caption(f":material/description: {r['Source']}")
+    else:
+        st.caption("Check a row above to see its full value.")
 
 
 def result_detail(r, left_label: str, right_label: str) -> None:

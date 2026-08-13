@@ -146,13 +146,14 @@ if st.button("Run control testing", icon=":material/play_arrow:", type="primary"
             case_store.store_documents(error_case_id, list(paths.values()))
             st.error(f"Extraction/comparison failed: {exc}. Logged as {error_case_id} for follow-up.")
             st.stop()
-    customer_name = cls.get("customer_name", "") or "Unknown Customer"
+    customer_display_name = cls.get("customer_name", "") or "Unknown Customer"
+    id_name = case_store.combine_document_names(cls.get("customer_name", ""), ssm.get("name", ""))
     with st.spinner("Generating remarks..."):
-        remarks = ai_client.generate_case_remarks(results, f"Case 2 (Accounts) — {customer_name}")
+        remarks = ai_client.generate_case_remarks(results, f"Case 2 (Accounts) — {customer_display_name}")
     elapsed = time.time() - started
     markdown_report = to_markdown(cls, email, ssm, ccris_app, guarantor_app, results)
     new_case_id = case_store.save_case(
-        "case2", documents, results, elapsed, remarks, markdown_report, customer_name=customer_name
+        "case2", documents, results, elapsed, remarks, markdown_report, customer_name=id_name
     )
     case_store.store_documents(new_case_id, list(paths.values()))
     st.session_state["selected_case_id"] = new_case_id

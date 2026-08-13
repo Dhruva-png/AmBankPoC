@@ -11,7 +11,7 @@ sys.path.insert(0, str(REPO_ROOT / "src" / "case2_account_opening"))
 import ui_components as ui  # noqa: E402
 
 st.set_page_config(
-    page_title="AmBank KCT Intelligence · Accounts",
+    page_title="AmBank Document Intelligence Module · Accounts",
     page_icon=":material/shield_person:",
     layout="wide",
 )
@@ -26,7 +26,7 @@ pages = [
 ]
 nav = st.navigation(pages, position="hidden")
 
-ui.sidebar_brand("AmBank KCT Intelligence", "Accounts")
+ui.sidebar_brand("AmBank Document Intelligence Module", "Accounts")
 ui.sidebar_nav(pages, nav.url_path)
 
 nav.run()

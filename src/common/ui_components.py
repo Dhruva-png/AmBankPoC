@@ -7,6 +7,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from check_result import clean_source_text
+
 _TEMP_FILENAME_RE = re.compile(r"^tmp[a-z0-9_]{6,}\.\w+$", re.IGNORECASE)
 
 
@@ -239,13 +241,13 @@ def validation_table(results: list, key: str, left_label: str = "Value A", right
         selection_mode="single-row",
         key=key,
         column_config={
-            "KCT": st.column_config.TextColumn(width="small"),
-            "Check": st.column_config.TextColumn(width="medium"),
-            "Status": st.column_config.TextColumn(width="small"),
-            "Confidence": st.column_config.TextColumn(width="small"),
-            left_label: st.column_config.TextColumn(width="large"),
-            right_label: st.column_config.TextColumn(width="large"),
-            "Note": st.column_config.TextColumn(width="large"),
+            "KCT": st.column_config.TextColumn(width=100),
+            "Check": st.column_config.TextColumn(width=220),
+            "Status": st.column_config.TextColumn(width=90),
+            "Confidence": st.column_config.TextColumn(width=100),
+            left_label: st.column_config.TextColumn(width=380),
+            right_label: st.column_config.TextColumn(width=380),
+            "Note": st.column_config.TextColumn(width=420),
         },
     )
     if event and event.selection and event.selection.rows:
@@ -259,10 +261,10 @@ def flagged_cases_table(df: pd.DataFrame, key: str):
     df = df.copy()
     df["Confidence"] = df["Confidence"].apply(confidence_text)
     column_config = {
-        "Case": st.column_config.TextColumn(width="medium"),
-        "Recommendation": st.column_config.TextColumn(width="medium"),
-        "Confidence": st.column_config.TextColumn(width="small"),
-        "Findings": st.column_config.NumberColumn(width="small"),
+        "Case": st.column_config.TextColumn(width=260),
+        "Recommendation": st.column_config.TextColumn(width=260),
+        "Confidence": st.column_config.TextColumn(width=100),
+        "Findings": st.column_config.NumberColumn(width=90),
     }
     return selectable_table(df, column_config, key)
 
@@ -271,9 +273,9 @@ def findings_table(df: pd.DataFrame, key: str):
     df = df.copy()
     df["Confidence"] = df["Confidence"].apply(confidence_text)
     column_config = {
-        "Severity": st.column_config.TextColumn(width="small"),
-        "Title": st.column_config.TextColumn(width="large"),
-        "Confidence": st.column_config.TextColumn(width="small"),
+        "Severity": st.column_config.TextColumn(width=100),
+        "Title": st.column_config.TextColumn(width=450),
+        "Confidence": st.column_config.TextColumn(width=100),
     }
     return selectable_table(df, column_config, key)
 
@@ -330,10 +332,10 @@ def field_extraction_table(rows: pd.DataFrame, key: str) -> None:
         selection_mode="single-row",
         key=key,
         column_config={
-            "Field": st.column_config.TextColumn(width="medium"),
-            "Value": st.column_config.TextColumn(width="large"),
-            "Confidence": st.column_config.TextColumn(width="small"),
-            "Source": st.column_config.TextColumn(width="large"),
+            "Field": st.column_config.TextColumn(width=200),
+            "Value": st.column_config.TextColumn(width=400),
+            "Confidence": st.column_config.TextColumn(width=100),
+            "Source": st.column_config.TextColumn(width=380),
         },
     )
     if event and event.selection and event.selection.rows:
@@ -362,12 +364,12 @@ def result_detail(r, left_label: str, right_label: str) -> None:
             st.caption(left_label.upper())
             st.write(r.left_value or "—")
             if r.source_left:
-                st.caption(f":material/description: {r.source_left}")
+                st.caption(f":material/description: {clean_source_text(r.source_left)}")
         with col2:
             st.caption(right_label.upper())
             st.write(r.right_value or "—")
             if r.source_right:
-                st.caption(f":material/description: {r.source_right}")
+                st.caption(f":material/description: {clean_source_text(r.source_right)}")
 
 
 _AI_SUMMARY_SECTIONS = [

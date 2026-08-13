@@ -98,6 +98,62 @@ def _format_remarks(remarks: str) -> str:
     return "\n\n".join(blocks) or "No AI summary available."
 
 
+_AI_SUMMARY_SECTIONS = [
+    ("executive_summary", "Executive Summary", "FDEBD3"),
+    ("positive_indicators", "Positive Indicators", "D9EAD3"),
+    ("areas_of_concern", "Areas of Concern", "FCE0B4"),
+    ("recommendations", "AI Recommendations", "D6E4F0"),
+]
+
+
+def _ai_summary_block(ws, row: int, remarks: str) -> int:
+    """Renders the AI summary as one colored section per category (matching the reference
+    layout), each with its own header row and one row per bullet -- not a single merged
+    text block."""
+    ws.cell(row=row, column=1, value="AI Summary").font = SECTION_FONT
+    row += 2
+
+    try:
+        sections = json.loads(remarks) if remarks else None
+        if sections is not None and not isinstance(sections, dict):
+            raise ValueError
+    except (json.JSONDecodeError, ValueError, TypeError):
+        sections = None
+
+    if sections is None:
+        # Older cases stored remarks as a plain bullet-list string -- render as-is.
+        text = remarks or "Not generated."
+        cell = ws.cell(row=row, column=1, value=text)
+        cell.alignment = WRAP
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        ws.row_dimensions[row].height = max(60, 16 * (text.count("\n") + 2))
+        return row + 2
+
+    any_section = False
+    for key, title, color in _AI_SUMMARY_SECTIONS:
+        bullets = [b for b in (sections.get(key) or []) if b]
+        if not bullets:
+            continue
+        any_section = True
+        fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+        ws.cell(row=row, column=1, value=title).font = Font(bold=True, size=10.5, color="0F1420")
+        for col in range(1, 7):
+            ws.cell(row=row, column=col).fill = fill
+        row += 1
+        for bullet in bullets:
+            cell = ws.cell(row=row, column=2, value=bullet)
+            cell.alignment = WRAP
+            ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=6)
+            for col in range(1, 7):
+                ws.cell(row=row, column=col).fill = fill
+            row += 1
+
+    if not any_section:
+        ws.cell(row=row, column=1, value="No AI summary available.").font = Font(italic=True, size=9, color="6B7280")
+        row += 1
+    return row + 1
+
+
 def _full_report_sheet(
     wb: Workbook,
     case_meta: dict,
@@ -127,20 +183,13 @@ def _full_report_sheet(
         row += 1
     row += 1
 
-    ws.cell(row=row, column=1, value="AI Summary").font = SECTION_FONT
-    row += 1
-    formatted_remarks = _format_remarks(remarks)
-    ws.cell(row=row, column=1, value=formatted_remarks)
-    ws.cell(row=row, column=1).alignment = WRAP
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-    ws.row_dimensions[row].height = max(80, 16 * (formatted_remarks.count("\n") + 2))
-    row += 2
-
     ws.cell(row=row, column=1, value="Exceptions").font = SECTION_FONT
     row += 2
 
     row = _exceptions_block(ws, row, left_label, results, "left")
     row = _exceptions_block(ws, row, right_label, results, "right")
+
+    row = _ai_summary_block(ws, row, remarks)
 
     _autosize(ws, {1: 16, 2: 30, 3: 10, 4: 12, 5: 34, 6: 48})
 

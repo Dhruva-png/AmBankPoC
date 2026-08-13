@@ -12,7 +12,7 @@ import charts
 import document_preview
 import excel_export
 import ui_components as ui
-from check_result import compute_accuracy
+from check_result import clean_source_text, compute_accuracy
 
 
 @st.cache_data(show_spinner="Rendering document preview...")
@@ -30,7 +30,7 @@ def _document_field_rows(results, side: str) -> pd.DataFrame:
             "Field": ui.short_label(r.check),
             "Value": getattr(r, value_attr) or "—",
             "Confidence": r.confidence,
-            "Source": getattr(r, source_attr) or "—",
+            "Source": clean_source_text(getattr(r, source_attr, "")) or "—",
         }
         for r in results
     ]
@@ -40,13 +40,17 @@ def _document_field_rows(results, side: str) -> pd.DataFrame:
 def _document_field_rows_for_file(results, filename: str) -> pd.DataFrame:
     rows = []
     for r in results:
+        # Match against the raw (uncleaned) source -- it still carries the real filename for
+        # matching purposes even on old cases where the *displayed* text gets cleaned below.
         if r.source_left and filename in r.source_left:
             rows.append(
-                {"Field": ui.short_label(r.check), "Value": r.left_value or "—", "Confidence": r.confidence, "Source": r.source_left}
+                {"Field": ui.short_label(r.check), "Value": r.left_value or "—", "Confidence": r.confidence,
+                 "Source": clean_source_text(r.source_left)}
             )
         if r.source_right and filename in r.source_right:
             rows.append(
-                {"Field": ui.short_label(r.check), "Value": r.right_value or "—", "Confidence": r.confidence, "Source": r.source_right}
+                {"Field": ui.short_label(r.check), "Value": r.right_value or "—", "Confidence": r.confidence,
+                 "Source": clean_source_text(r.source_right)}
             )
     return pd.DataFrame(rows, columns=["Field", "Value", "Confidence", "Source"])
 
@@ -318,13 +322,13 @@ def render_cases_list(case_type: str, module_name: str, case_detail_page: str) -
             selection_mode="multi-row",
             key=f"{case_type}_case_table",
             column_config={
-                "Case ID": st.column_config.TextColumn(width="medium"),
-                "File Name": st.column_config.TextColumn(width="large"),
-                "Uploaded": st.column_config.TextColumn(width="small"),
-                "Completed": st.column_config.TextColumn(width="small"),
-                "Processing Time": st.column_config.TextColumn(width="small"),
-                "Status": st.column_config.TextColumn(width="small"),
-                "Accuracy": st.column_config.TextColumn(width="small"),
+                "Case ID": st.column_config.TextColumn(width=280),
+                "File Name": st.column_config.TextColumn(width=420),
+                "Uploaded": st.column_config.TextColumn(width=140),
+                "Completed": st.column_config.TextColumn(width=140),
+                "Processing Time": st.column_config.TextColumn(width=120),
+                "Status": st.column_config.TextColumn(width=140),
+                "Accuracy": st.column_config.TextColumn(width=100),
             },
         )
         st.caption(f"Showing {len(display)} of {total_matches} case(s).")
@@ -459,7 +463,10 @@ def render_case_results(
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             icon=":material/download:",
         )
-        st.download_button("Markdown report", markdown_report, file_name=f"{case_id}-report.md", icon=":material/description:")
+        st.download_button(
+            "Markdown report", clean_source_text(markdown_report), file_name=f"{case_id}-report.md",
+            icon=":material/description:",
+        )
 
 
 def render_reports(
@@ -535,8 +542,8 @@ def render_reports(
             hide_index=True,
             width="stretch",
             column_config={
-                "No.": st.column_config.TextColumn(width="small"),
-                "Exception": st.column_config.TextColumn(width="large"),
-                "KCT Reference": st.column_config.TextColumn(width="small"),
+                "No.": st.column_config.TextColumn(width=60),
+                "Exception": st.column_config.TextColumn(width=500),
+                "KCT Reference": st.column_config.TextColumn(width=120),
             },
         )

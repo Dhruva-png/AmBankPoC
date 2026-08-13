@@ -33,6 +33,15 @@ _STYLE = """
     padding: 12px 16px;
     background-color: #ffffff;
     border-radius: 10px;
+    height: 72px !important;
+    width: auto !important;
+    max-width: calc(100% - 32px);
+}
+[data-testid="stSidebarLogo"] img {
+    height: 72px !important;
+    width: auto !important;
+    max-width: 100%;
+    object-fit: contain;
 }
 [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:first-child h3 {
     color: #ffffff;

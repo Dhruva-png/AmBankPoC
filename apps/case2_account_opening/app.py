@@ -28,5 +28,6 @@ nav = st.navigation(pages, position="hidden")
 
 ui.sidebar_brand("AmBank Document Intelligence Module", "Accounts")
 ui.sidebar_nav(pages, nav.url_path)
+ui.sidebar_footer_logo(APP_DIR / "assets")
 
 nav.run()

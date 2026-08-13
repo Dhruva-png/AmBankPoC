@@ -175,6 +175,16 @@ def sidebar_nav(pages: list, current_url_path: str) -> None:
                 st.page_link(page)
 
 
+def sidebar_footer_logo(assets_dir: Path) -> None:
+    path = assets_dir / "marvel.png"
+    if not path.exists():
+        return
+    with st.sidebar:
+        st.write("")
+        st.caption("POWERED BY")
+        st.image(str(path), width=130)
+
+
 def status_badge(status: str) -> None:
     st.badge(status, color=STATUS_BADGE_COLOR.get(status, "gray"))
 

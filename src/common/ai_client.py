@@ -196,15 +196,28 @@ Below are the automated KCT control testing results for this case:
 
 {results_summary}
 
-Write 3-5 short bullet points (each one sentence, under 20 words) for the audit workbook. Cover: overall reliability of the reconciled documents, any FAIL exceptions by KCT number, and any REVIEW items needing manual follow-up. Skip anything that passed cleanly -- only call out what a reviewer needs to act on. No headings, no restating the full table, no filler sentences.
+Write a structured audit summary in four sections. Each bullet is one sentence, under 20 words. No headings inside the bullets, no restating the full results table, no filler sentences. Use an empty list for a section with nothing to report.
+
+1. "executive_summary": 1-2 bullets on the overall reliability/authenticity of the reconciled documents.
+2. "positive_indicators": up to 3 bullets on what passed cleanly or other strong signals.
+3. "areas_of_concern": up to 3 bullets on FAIL exceptions and REVIEW items by KCT number that need attention.
+4. "recommendations": up to 3 short, actionable next steps for the audit reviewer.
 
 Return strict JSON only:
-{{"bullets": ["...", "..."]}}"""
+{{"executive_summary": ["..."], "positive_indicators": ["..."], "areas_of_concern": ["..."], "recommendations": ["..."]}}"""
+
+_EMPTY_REMARKS_SECTIONS = {"executive_summary": [], "positive_indicators": [], "areas_of_concern": [], "recommendations": []}
+
+
+def _remarks_json(**overrides) -> str:
+    sections = dict(_EMPTY_REMARKS_SECTIONS)
+    sections.update(overrides)
+    return json.dumps(sections)
 
 
 def generate_case_remarks(results, case_label: str) -> str:
     if not is_configured():
-        return "- Automated remarks unavailable -- AI engine not configured for this run."
+        return _remarks_json(executive_summary=["Automated remarks unavailable -- AI engine not configured for this run."])
     lines = []
     for r in results:
         conf = f"{r.confidence:.0f}%" if r.confidence is not None else "n/a"
@@ -214,10 +227,15 @@ def generate_case_remarks(results, case_label: str) -> str:
             _REMARKS_PROMPT.format(case_label=case_label, results_summary="\n".join(lines)),
             max_tokens=1200,
         )
-        bullets = [b.strip() for b in result.get("bullets", []) if b.strip()]
-        return "\n".join(f"- {b}" for b in bullets) or "- AI remarks generation returned no content."
+        sections = {
+            key: [b.strip() for b in result.get(key, []) if isinstance(b, str) and b.strip()]
+            for key in _EMPTY_REMARKS_SECTIONS
+        }
+        if not any(sections.values()):
+            return _remarks_json(executive_summary=["AI remarks generation returned no content."])
+        return json.dumps(sections)
     except Exception as exc:
-        return f"- AI remarks generation failed ({exc})."
+        return _remarks_json(executive_summary=[f"AI remarks generation failed ({exc})."])
 
 
 _MODULE_SUMMARY_PROMPT = """You are a senior internal audit reviewer at a bank summarizing the results of an AI-assisted key control testing (KCT) exercise for {module_name}.

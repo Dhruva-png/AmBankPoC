@@ -222,9 +222,40 @@ def render_dashboard(case_type: str, module_name: str, case_detail_page: str) ->
             )
 
 
+_CASE_STATUS_EMOJI = {"complete": "\U0001F7E2", "needs_review": "\U0001F7E0", "error": "\U0001F534"}
+
+
+def _case_management_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for _, row in df.iterrows():
+        documents = json.loads(row["documents"])
+        try:
+            completed = datetime.fromisoformat(row["created_at"])
+            uploaded = completed - pd.Timedelta(seconds=row["processing_seconds"] or 0)
+            uploaded_text, completed_text = uploaded.strftime("%Y-%m-%d %H:%M"), completed.strftime("%Y-%m-%d %H:%M")
+        except (TypeError, ValueError):
+            uploaded_text = completed_text = row["created_at"]
+        status = row.get("status") or ("needs_review" if row["flagged"] else "complete")
+        rows.append(
+            {
+                "Case ID": row["case_id"],
+                "Customer": row.get("customer_name") or "—",
+                "File Name": ", ".join(d["filename"] for d in documents) or "—",
+                "Uploaded": uploaded_text,
+                "Completed": completed_text,
+                "Processing Time": ui.format_duration(row["processing_seconds"]),
+                "Status": f"{_CASE_STATUS_EMOJI.get(status, '')} {ui.CASE_STATUS_LABEL.get(status, status)}",
+                "Accuracy": ui.accuracy_text(row.get("accuracy")),
+            }
+        )
+    return pd.DataFrame(
+        rows, columns=["Case ID", "Customer", "File Name", "Uploaded", "Completed", "Processing Time", "Status", "Accuracy"]
+    )
+
+
 def render_cases_list(case_type: str, module_name: str, case_detail_page: str) -> None:
-    st.title(":material/folder_open: Cases")
-    st.caption(f"Every {module_name.lower()} case processed by this module")
+    st.title(":material/folder_open: Case Management")
+    st.caption("Monitor and review every processed case.")
 
     with st.container(horizontal=True):
         if st.button("New case", icon=":material/add:", type="primary"):
@@ -232,46 +263,95 @@ def render_cases_list(case_type: str, module_name: str, case_detail_page: str) -
             st.switch_page(case_detail_page)
 
     df = case_store.list_cases(case_type)
+    if df.empty:
+        with st.container(border=True):
+            st.caption(f"No {module_name.lower()} cases yet. Click **New case** to run your first control test.")
+        return
+
+    display = _case_management_dataframe(df)
+
+    toolbar = st.columns([1, 2, 1], vertical_alignment="bottom")
+    with toolbar[0]:
+        show_n = st.selectbox("Show entries", [10, 25, 50, "All"], key=f"{case_type}_show_n")
+    with toolbar[1]:
+        search = st.text_input(
+            "Search cases", key=f"{case_type}_search", label_visibility="collapsed",
+            placeholder="Search by case ID, customer, or file name...",
+        )
+    with toolbar[2]:
+        export_scope = st.session_state.get(f"{case_type}_export_scope", [])
+        export_ids = export_scope or df["case_id"].tolist()
+        st.download_button(
+            f"Excel ({'selected' if export_scope else 'all'})",
+            data=excel_export.build_consolidated_workbook(case_type, module_name, case_ids=export_ids),
+            file_name=f"{case_type}_cases_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            icon=":material/download:",
+            width="stretch",
+        )
+
+    if search:
+        mask = (
+            display["Case ID"].str.contains(search, case=False, na=False)
+            | display["Customer"].str.contains(search, case=False, na=False)
+            | display["File Name"].str.contains(search, case=False, na=False)
+        )
+        display = display[mask].reset_index(drop=True)
+
+    total_matches = len(display)
+    if show_n != "All":
+        display = display.head(int(show_n))
+
     with st.container(border=True):
-        st.subheader(f"All cases ({len(df)})")
-        if df.empty:
-            st.caption("No cases yet. Click **New case** to run your first control test.")
-            return
+        event = st.dataframe(
+            display,
+            hide_index=True,
+            width="stretch",
+            on_select="rerun",
+            selection_mode="multi-row",
+            key=f"{case_type}_case_table",
+            column_config={
+                "Case ID": st.column_config.TextColumn(width="medium"),
+                "Customer": st.column_config.TextColumn(width="medium"),
+                "File Name": st.column_config.TextColumn(width="large"),
+                "Uploaded": st.column_config.TextColumn(width="small"),
+                "Completed": st.column_config.TextColumn(width="small"),
+                "Processing Time": st.column_config.TextColumn(width="small"),
+                "Status": st.column_config.TextColumn(width="small"),
+                "Accuracy": st.column_config.TextColumn(width="small"),
+            },
+        )
+        st.caption(f"Showing {len(display)} of {total_matches} case(s).")
 
-        for _, row in df.iterrows():
-            case_id = row["case_id"]
-            doc_count = len(json.loads(row["documents"]))
-            confirm_key = f"confirm_delete_{case_id}"
-            with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center", border=True):
-                info = st.container(gap=None)
-                with info:
-                    st.markdown(f"**{case_id}**")
-                    st.caption(f"{row['created_at']} · {doc_count} document(s)")
+        selected_rows = event.selection.rows if event and event.selection else []
+        selected_ids = [display.iloc[i]["Case ID"] for i in selected_rows]
+        st.session_state[f"{case_type}_export_scope"] = selected_ids
 
-                st.badge(
-                    "FLAGGED" if row["flagged"] else "CLEAR",
-                    color="red" if row["flagged"] else "green",
-                )
-                st.caption(f"{row['pass_count']} pass · {row['fail_count']} fail · {row['review_count']} review")
-
+        action_cols = st.columns(3)
+        with action_cols[0]:
+            if st.button("Open", key=f"{case_type}_open_selected", icon=":material/arrow_forward:", disabled=len(selected_ids) != 1):
+                st.session_state["selected_case_id"] = selected_ids[0]
+                st.switch_page(case_detail_page)
+        with action_cols[1]:
+            confirm_key = f"{case_type}_confirm_bulk_delete"
+            if not st.session_state.get(confirm_key):
+                if st.button(
+                    f"Delete{f' ({len(selected_ids)})' if selected_ids else ''}",
+                    key=f"{case_type}_delete_selected", icon=":material/delete:", disabled=not selected_ids,
+                ):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
+            else:
                 with st.container(horizontal=True):
-                    if st.session_state.get(confirm_key):
-                        st.caption("Delete permanently?")
-                        if st.button("Confirm", key=f"confirm_{case_id}", icon=":material/delete_forever:", type="primary"):
-                            case_store.delete_case(case_id)
-                            st.session_state.pop(confirm_key, None)
-                            st.toast(f"Case {case_id} deleted", icon=":material/delete:")
-                            st.rerun()
-                        if st.button("Cancel", key=f"cancel_{case_id}", type="tertiary"):
-                            st.session_state.pop(confirm_key, None)
-                            st.rerun()
-                    else:
-                        if st.button("Delete", key=f"delete_{case_id}", icon=":material/delete:", type="tertiary"):
-                            st.session_state[confirm_key] = True
-                            st.rerun()
-                        if st.button("Open", key=f"open_{case_id}", icon=":material/arrow_forward:"):
-                            st.session_state["selected_case_id"] = case_id
-                            st.switch_page(case_detail_page)
+                    if st.button(f"Confirm delete ({len(selected_ids)})", key=f"{case_type}_confirm_delete", type="primary", icon=":material/delete_forever:"):
+                        for cid in selected_ids:
+                            case_store.delete_case(cid)
+                        st.session_state.pop(confirm_key, None)
+                        st.toast(f"Deleted {len(selected_ids)} case(s)", icon=":material/delete:")
+                        st.rerun()
+                    if st.button("Cancel", key=f"{case_type}_cancel_delete", type="tertiary"):
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
 
 
 def render_case_actions(case_id: str, back_page: str) -> None:
@@ -307,17 +387,33 @@ def render_case_results(
     left_label: str,
     right_label: str,
     markdown_report: str,
+    case_status: str = "",
+    error_message: str = "",
 ) -> None:
+    if case_status == case_store.STATUS_ERROR:
+        st.error(f"Processing failed for {case_id} -- no results were produced.", icon=":material/error:")
+        with st.container(border=True):
+            st.subheader("Error detail")
+            st.write(error_message or "Unknown error.")
+        if documents:
+            with st.container(border=True):
+                st.subheader(f"Documents supplied ({len(documents)})")
+                ui.document_chips(documents)
+        return
+
     counts = {s: sum(1 for r in results if r.status == s) for s in ("PASS", "FAIL", "REVIEW", "N/A")}
+    status = case_status or (case_store.STATUS_NEEDS_REVIEW if (counts["FAIL"] or counts["REVIEW"]) else case_store.STATUS_COMPLETE)
+    applicable = counts["PASS"] + counts["FAIL"] + counts["REVIEW"]
+    accuracy = round(counts["PASS"] / applicable * 100, 1) if applicable else 100.0
 
     ui.status_banner(counts)
 
     with st.container(horizontal=True):
         st.metric("Case ID", case_id, border=True)
+        st.metric("Accuracy", ui.accuracy_text(accuracy), border=True)
         st.metric("Pass", counts["PASS"], border=True)
         st.metric("Fail", counts["FAIL"], border=True, delta=None if not counts["FAIL"] else "exceptions", delta_color="inverse")
         st.metric("Review", counts["REVIEW"], border=True)
-        st.metric("N/A", counts["N/A"], border=True)
 
     with st.container(border=True):
         st.subheader(f"Documents ({len(documents)})")
@@ -327,21 +423,15 @@ def render_case_results(
         _render_document_extraction(case_id, documents, results)
 
     with st.container(border=True):
-        st.subheader("AI remarks")
-        st.write(remarks)
+        st.subheader("Validation")
+        st.caption(f"Every control check for this case -- {left_label} vs {right_label}. Check a row for full detail.")
+        ui.validation_table(results, key=f"{case_id}_validation", left_label=left_label, right_label=right_label)
 
     with st.container(border=True):
-        st.subheader("Exceptions")
-        if not (counts["FAIL"] or counts["REVIEW"]):
-            st.caption("No exceptions -- all controls passed.")
-        else:
-            st.caption(left_label)
-            ui.exceptions_table(results, "left", key=f"{case_id}_exceptions_left", left_label=left_label, right_label=right_label)
-            st.caption(right_label)
-            ui.exceptions_table(results, "right", key=f"{case_id}_exceptions_right", left_label=left_label, right_label=right_label)
+        st.subheader("AI Recommendations")
+        ui.ai_summary(remarks)
 
     st.subheader("Export")
-    overall_status = "FLAGGED" if (counts["FAIL"] or counts["REVIEW"]) else "CLEAR"
     with st.container(horizontal=True):
         st.download_button(
             "Excel workbook",
@@ -351,9 +441,9 @@ def render_case_results(
                     "case_id": case_id,
                     "module": module_name,
                     "processed_at": processed_at,
-                    "processing_time": f"{processing_seconds:.1f}s",
+                    "processing_time": ui.format_duration(processing_seconds),
                     "documents": ", ".join(d["filename"] for d in documents),
-                    "overall_status": overall_status,
+                    "overall_status": ui.CASE_STATUS_LABEL.get(status, status),
                 },
                 results=results,
                 remarks=remarks,

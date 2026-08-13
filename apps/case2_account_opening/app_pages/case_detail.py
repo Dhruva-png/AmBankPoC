@@ -52,10 +52,12 @@ if case_id:
         remarks=case["remarks"] or "",
         processing_seconds=case["processing_seconds"] or 0,
         processed_at=case["created_at"],
-        module_name="Account Opening",
+        module_name="Accounts",
         left_label="Value A",
         right_label="Value B",
         markdown_report=case["markdown_report"] or "",
+        case_status=case.get("status") or "",
+        error_message=case.get("error_message") or "",
     )
     st.stop()
 
@@ -130,6 +132,7 @@ if len(paths) < 5:
 if st.button("Run control testing", icon=":material/play_arrow:", type="primary"):
     started = time.time()
     render_dir = tempfile.mkdtemp(prefix="case2_render_")
+    documents = [{"label": DOC_LABELS[key], "filename": Path(p).name} for key, p in paths.items()]
     with st.spinner("Extracting fields and reconciling..."):
         try:
             cls = extract_cls_fields(paths["cls"])
@@ -139,16 +142,18 @@ if st.button("Run control testing", icon=":material/play_arrow:", type="primary"
             guarantor_app = extract_guarantor_application_fields(paths["guarantor_app"], render_dir)
             results = compare(cls, email, ssm, ccris_app, guarantor_app)
         except Exception as exc:
-            st.error(f"Extraction/comparison failed: {exc}")
+            error_case_id = case_store.save_error_case("case2", documents, "", str(exc))
+            case_store.store_documents(error_case_id, list(paths.values()))
+            st.error(f"Extraction/comparison failed: {exc}. Logged as {error_case_id} for follow-up.")
             st.stop()
+    customer_name = cls.get("customer_name", "") or "Unknown Customer"
     with st.spinner("Generating remarks..."):
-        remarks = ai_client.generate_case_remarks(
-            results, f"Case 2 (Account Opening) — {cls.get('customer_name', 'Unknown Customer')}"
-        )
+        remarks = ai_client.generate_case_remarks(results, f"Case 2 (Accounts) — {customer_name}")
     elapsed = time.time() - started
-    documents = [{"label": DOC_LABELS[key], "filename": Path(p).name} for key, p in paths.items()]
     markdown_report = to_markdown(cls, email, ssm, ccris_app, guarantor_app, results)
-    new_case_id = case_store.save_case("case2", documents, results, elapsed, remarks, markdown_report)
+    new_case_id = case_store.save_case(
+        "case2", documents, results, elapsed, remarks, markdown_report, customer_name=customer_name
+    )
     case_store.store_documents(new_case_id, list(paths.values()))
     st.session_state["selected_case_id"] = new_case_id
     st.toast(f"Case {new_case_id} created", icon=":material/check_circle:")

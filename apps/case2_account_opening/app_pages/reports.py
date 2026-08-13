@@ -12,4 +12,4 @@ EXCEPTIONS = [
     ("9", "CIF approved without sufficient Maker-Checker verification evidence", "—"),
 ]
 
-shared_pages.render_reports("case2", "Account Opening", EXCEPTIONS, "Value A", "Value B")
+shared_pages.render_reports("case2", "Accounts", EXCEPTIONS, "Value A", "Value B")

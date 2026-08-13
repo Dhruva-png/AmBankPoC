@@ -12,4 +12,4 @@ EXCEPTIONS = [
     ("9", "Wrong letterhead used (Conventional/Islamic)", "—"),
 ]
 
-shared_pages.render_reports("case1", "Credit Facilities", EXCEPTIONS, "Credit Paper", "Letter of Offer")
+shared_pages.render_reports("case1", "Credit Forms", EXCEPTIONS, "Credit Paper", "Letter of Offer")

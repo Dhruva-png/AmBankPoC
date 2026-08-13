@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -74,6 +75,21 @@ STATUS_ICON = {
     "N/A": ":material/remove_circle:",
 }
 SEVERITY_LABEL = {"FAIL": "High", "REVIEW": "Medium"}
+
+CASE_STATUS_LABEL = {"complete": "Complete", "needs_review": "Needs Review", "error": "Error"}
+CASE_STATUS_COLOR = {"complete": "green", "needs_review": "orange", "error": "red"}
+CASE_STATUS_ROW_BG = {"complete": "#E7F6ED", "needs_review": "#FBF1DE", "error": "#FCEAE9"}
+
+
+def format_duration(seconds) -> str:
+    total = int(seconds or 0)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def accuracy_text(value) -> str:
+    return f"{value:.0f}%" if value is not None and not pd.isna(value) else "—"
 
 # Full check descriptions (used in Excel/markdown exports and the detail panel) are
 # too long for compact on-screen tables -- shortened here for display only.
@@ -165,30 +181,35 @@ def selectable_table(df: pd.DataFrame, column_config: dict, key: str):
     return 0
 
 
-def exceptions_dataframe(exceptions: list, side: str) -> pd.DataFrame:
-    value_attr = f"{side}_value"
+CHECK_STATUS_ROW_BG = {"PASS": "#E7F6ED", "FAIL": "#FCEAE9", "REVIEW": "#FBF1DE", "N/A": "#EEF0F3"}
+
+
+def validation_dataframe(results: list, left_label: str, right_label: str) -> pd.DataFrame:
     rows = [
         {
             "KCT": r.kct,
             "Check": short_label(r.check),
             "Status": r.status,
             "Confidence": confidence_text(r.confidence),
-            "Value": _preview(getattr(r, value_attr), limit=60),
+            left_label: _preview(r.left_value, limit=60),
+            right_label: _preview(r.right_value, limit=60),
             "Note": _preview(r.note, limit=90),
         }
-        for r in exceptions
+        for r in results
     ]
-    return pd.DataFrame(rows, columns=["KCT", "Check", "Status", "Confidence", "Value", "Note"])
+    return pd.DataFrame(rows, columns=["KCT", "Check", "Status", "Confidence", left_label, right_label, "Note"])
 
 
-def exceptions_table(results, side: str, key: str, left_label: str = "Value A", right_label: str = "Value B") -> None:
-    exceptions = [r for r in results if r.status in ("FAIL", "REVIEW")]
-    if not exceptions:
-        st.caption("No exceptions on this side.")
+def validation_table(results: list, key: str, left_label: str = "Value A", right_label: str = "Value B") -> None:
+    if not results:
+        st.caption("No checks were run for this case.")
         return
-    df = exceptions_dataframe(exceptions, side)
+    df = validation_dataframe(results, left_label, right_label)
+    styled = df.style.apply(
+        lambda row: [f"background-color: {CHECK_STATUS_ROW_BG.get(row['Status'], '')}"] * len(row), axis=1
+    )
     event = st.dataframe(
-        df,
+        styled,
         hide_index=True,
         width="stretch",
         on_select="rerun",
@@ -199,14 +220,15 @@ def exceptions_table(results, side: str, key: str, left_label: str = "Value A", 
             "Check": st.column_config.TextColumn(width="medium"),
             "Status": st.column_config.TextColumn(width="small"),
             "Confidence": st.column_config.TextColumn(width="small"),
-            "Value": st.column_config.TextColumn(width="medium"),
+            left_label: st.column_config.TextColumn(width="medium"),
+            right_label: st.column_config.TextColumn(width="medium"),
             "Note": st.column_config.TextColumn(width="medium"),
         },
     )
     if event and event.selection and event.selection.rows:
-        result_detail(exceptions[event.selection.rows[0]], left_label, right_label)
+        result_detail(results[event.selection.rows[0]], left_label, right_label)
     else:
-        st.caption("Check a row above to see its full mismatch detail.")
+        st.caption("Check a row above to see its full detail.")
 
 
 def flagged_cases_table(df: pd.DataFrame, key: str):
@@ -309,3 +331,37 @@ def result_detail(r, left_label: str, right_label: str) -> None:
             st.write(r.right_value or "—")
             if r.source_right:
                 st.caption(f":material/description: {r.source_right}")
+
+
+_AI_SUMMARY_SECTIONS = [
+    ("executive_summary", "Executive Summary", "blue", ":material/summarize:"),
+    ("positive_indicators", "Positive Indicators", "green", ":material/thumb_up:"),
+    ("areas_of_concern", "Areas of Concern", "orange", ":material/warning:"),
+    ("recommendations", "AI Recommendations", "violet", ":material/lightbulb:"),
+]
+
+
+def ai_summary(remarks: str) -> None:
+    if not remarks:
+        st.caption("No AI summary available.")
+        return
+    try:
+        sections = json.loads(remarks)
+        if not isinstance(sections, dict):
+            raise ValueError
+    except (json.JSONDecodeError, ValueError, TypeError):
+        # Older cases stored remarks as a plain bullet-list string -- render as-is.
+        st.write(remarks)
+        return
+    rendered_any = False
+    for key, title, color, icon in _AI_SUMMARY_SECTIONS:
+        bullets = sections.get(key) or []
+        if not bullets:
+            continue
+        rendered_any = True
+        with st.container(border=True):
+            st.badge(title, color=color, icon=icon)
+            for bullet in bullets:
+                st.markdown(f"- {bullet}")
+    if not rendered_any:
+        st.caption("No AI summary available.")

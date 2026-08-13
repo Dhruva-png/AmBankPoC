@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 
+import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -71,6 +72,32 @@ def _exceptions_block(ws, row: int, title: str, results: list[CheckResult], side
     return row + 1
 
 
+_REMARKS_SECTION_TITLES = [
+    ("executive_summary", "EXECUTIVE SUMMARY"),
+    ("positive_indicators", "POSITIVE INDICATORS"),
+    ("areas_of_concern", "AREAS OF CONCERN"),
+    ("recommendations", "AI RECOMMENDATIONS"),
+]
+
+
+def _format_remarks(remarks: str) -> str:
+    if not remarks:
+        return "Not generated."
+    try:
+        sections = json.loads(remarks)
+        if not isinstance(sections, dict):
+            raise ValueError
+    except (json.JSONDecodeError, ValueError, TypeError):
+        # Older cases stored remarks as a plain bullet-list string -- keep as-is.
+        return remarks
+    blocks = []
+    for key, title in _REMARKS_SECTION_TITLES:
+        bullets = sections.get(key) or []
+        if bullets:
+            blocks.append(title + ":\n" + "\n".join(f"- {b}" for b in bullets))
+    return "\n\n".join(blocks) or "No AI summary available."
+
+
 def _full_report_sheet(
     wb: Workbook,
     case_meta: dict,
@@ -100,12 +127,13 @@ def _full_report_sheet(
         row += 1
     row += 1
 
-    ws.cell(row=row, column=1, value="AI Remarks").font = SECTION_FONT
+    ws.cell(row=row, column=1, value="AI Recommendations").font = SECTION_FONT
     row += 1
-    ws.cell(row=row, column=1, value=remarks or "Not generated.")
+    formatted_remarks = _format_remarks(remarks)
+    ws.cell(row=row, column=1, value=formatted_remarks)
     ws.cell(row=row, column=1).alignment = WRAP
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-    ws.row_dimensions[row].height = 80
+    ws.row_dimensions[row].height = max(80, 16 * (formatted_remarks.count("\n") + 2))
     row += 2
 
     ws.cell(row=row, column=1, value="Exceptions").font = SECTION_FONT
@@ -132,13 +160,29 @@ def build_workbook(
     return buffer.getvalue()
 
 
-def build_consolidated_workbook(case_type: str, module_name: str) -> bytes:
+CASE_STATUS_LABEL = {"complete": "Complete", "needs_review": "Needs Review", "error": "Error"}
+_CASE_STATUS_TO_CHECK_STATUS = {"complete": "PASS", "needs_review": "REVIEW", "error": "FAIL"}
+
+
+def _format_duration(seconds) -> str:
+    total = int(seconds or 0)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def build_consolidated_workbook(case_type: str, module_name: str, case_ids: list[str] | None = None) -> bytes:
     df = case_store.list_cases(case_type)
+    if case_ids is not None:
+        df = df[df["case_id"].isin(case_ids)]
     wb = Workbook()
     wb.properties.title = f"{module_name} Cases"
     ws = wb.active
     ws.title = "Cases"
-    headers = ["Case ID", "Processed At", "Status", "Pass", "Fail", "Review", "N/A", "Processing Time (s)", "Remarks"]
+    headers = [
+        "Case ID", "Customer", "Completed At", "Processing Time", "Status", "Accuracy",
+        "Pass", "Fail", "Review", "N/A", "Remarks",
+    ]
     ws.append(headers)
     for col in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=col)
@@ -146,18 +190,22 @@ def build_consolidated_workbook(case_type: str, module_name: str) -> bytes:
         cell.font = HEADER_FONT
     ws.freeze_panes = "A2"
     for _, row in df.iterrows():
+        case_status = row.get("status") or ("needs_review" if row["flagged"] else "complete")
+        accuracy = row.get("accuracy")
         ws.append([
-            row["case_id"], row["created_at"], "FLAGGED" if row["flagged"] else "CLEAR",
-            row["pass_count"], row["fail_count"], row["review_count"], row["na_count"],
-            row["processing_seconds"], row["remarks"],
+            row["case_id"], row.get("customer_name") or "", row["created_at"],
+            _format_duration(row["processing_seconds"]), CASE_STATUS_LABEL.get(case_status, case_status),
+            f"{accuracy:.0f}%" if pd.notna(accuracy) else "—",
+            row["pass_count"], row["fail_count"], row["review_count"], row["na_count"], row["remarks"],
         ])
-        status_cell = ws.cell(row=ws.max_row, column=3)
-        status_cell.fill = STATUS_FILL["FAIL" if row["flagged"] else "PASS"]
-        status_cell.font = STATUS_FONT["FAIL" if row["flagged"] else "PASS"]
-        ws.cell(row=ws.max_row, column=9).alignment = WRAP
-    _autosize(ws, {1: 22, 2: 20, 3: 12, 4: 8, 5: 8, 6: 8, 7: 8, 8: 16, 9: 60})
+        status_cell = ws.cell(row=ws.max_row, column=5)
+        check_status = _CASE_STATUS_TO_CHECK_STATUS.get(case_status, "N/A")
+        status_cell.fill = STATUS_FILL[check_status]
+        status_cell.font = STATUS_FONT[check_status]
+        ws.cell(row=ws.max_row, column=11).alignment = WRAP
+    _autosize(ws, {1: 26, 2: 22, 3: 20, 4: 14, 5: 14, 6: 10, 7: 8, 8: 8, 9: 8, 10: 8, 11: 60})
 
-    ws2 = wb.create_sheet("All Line Items")
+    ws2 = wb.create_sheet("Exceptions")
     headers2 = ["Case ID", "KCT", "Check", "Status", "Confidence", "Note"]
     ws2.append(headers2)
     for col in range(1, len(headers2) + 1):
@@ -167,6 +215,8 @@ def build_consolidated_workbook(case_type: str, module_name: str) -> bytes:
     ws2.freeze_panes = "A2"
     for _, row in df.iterrows():
         for r in json.loads(row["results_json"]):
+            if r.get("status") not in ("FAIL", "REVIEW"):
+                continue
             ws2.append([
                 row["case_id"], r.get("kct"), r.get("check"), r.get("status"),
                 f"{r['confidence']:.0f}%" if r.get("confidence") is not None else "",
@@ -176,7 +226,7 @@ def build_consolidated_workbook(case_type: str, module_name: str) -> bytes:
             status_cell.fill = STATUS_FILL.get(r.get("status"), STATUS_FILL["N/A"])
             status_cell.font = STATUS_FONT.get(r.get("status"), STATUS_FONT["N/A"])
             ws2.cell(row=ws2.max_row, column=6).alignment = WRAP
-    _autosize(ws2, {1: 22, 2: 14, 3: 34, 4: 10, 5: 12, 6: 48})
+    _autosize(ws2, {1: 26, 2: 14, 3: 34, 4: 10, 5: 12, 6: 48})
 
     buffer = io.BytesIO()
     wb.save(buffer)

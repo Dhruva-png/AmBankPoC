@@ -42,10 +42,12 @@ if case_id:
         remarks=case["remarks"] or "",
         processing_seconds=case["processing_seconds"] or 0,
         processed_at=case["created_at"],
-        module_name="Credit Facilities",
+        module_name="Credit Forms",
         left_label="Credit Paper",
         right_label="Letter of Offer",
         markdown_report=case["markdown_report"] or "",
+        case_status=case.get("status") or "",
+        error_message=case.get("error_message") or "",
     )
     st.stop()
 
@@ -111,25 +113,28 @@ if not (cp_path and lo_path):
 
 if st.button("Run control testing", icon=":material/play_arrow:", type="primary"):
     started = time.time()
+    documents = [
+        {"label": "Credit Paper", "filename": Path(cp_path).name},
+        {"label": "Letter of Offer", "filename": Path(lo_path).name},
+    ]
     with st.spinner("Extracting fields and reconciling against the Credit Paper..."):
         try:
             cp = extract_credit_paper_fields(cp_path)
             lo = extract_lo_fields(lo_path)
             results = compare(cp, lo)
         except Exception as exc:
-            st.error(f"Extraction/comparison failed: {exc}")
+            error_case_id = case_store.save_error_case("case1", documents, "", str(exc))
+            case_store.store_documents(error_case_id, [cp_path, lo_path])
+            st.error(f"Extraction/comparison failed: {exc}. Logged as {error_case_id} for follow-up.")
             st.stop()
+    customer_name = cp.get("customer", "") or "Unknown Customer"
     with st.spinner("Generating remarks..."):
-        remarks = ai_client.generate_case_remarks(
-            results, f"Case 1 (Credit Facilities) — {cp.get('customer', 'Unknown Customer')}"
-        )
+        remarks = ai_client.generate_case_remarks(results, f"Case 1 (Credit Forms) — {customer_name}")
     elapsed = time.time() - started
-    documents = [
-        {"label": "Credit Paper", "filename": Path(cp_path).name},
-        {"label": "Letter of Offer", "filename": Path(lo_path).name},
-    ]
     markdown_report = to_markdown(cp, lo, results)
-    new_case_id = case_store.save_case("case1", documents, results, elapsed, remarks, markdown_report)
+    new_case_id = case_store.save_case(
+        "case1", documents, results, elapsed, remarks, markdown_report, customer_name=customer_name
+    )
     case_store.store_documents(new_case_id, [cp_path, lo_path])
     st.session_state["selected_case_id"] = new_case_id
     st.toast(f"Case {new_case_id} created", icon=":material/check_circle:")

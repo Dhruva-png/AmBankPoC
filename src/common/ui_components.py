@@ -26,21 +26,20 @@ _STYLE = """
 [data-testid="stMainBlockContainer"] {
     padding-top: 2.5rem;
 }
+[data-testid="stSidebarHeader"] {
+    height: auto !important;
+    min-height: auto !important;
+}
 [data-testid="stSidebarLogo"] {
     box-sizing: content-box;
     display: block;
-    margin: 14px 16px 18px;
-    padding: 12px 16px;
+    margin: 10px 16px 14px;
+    padding: 10px 14px;
     background-color: #ffffff;
     border-radius: 10px;
-    height: 72px !important;
+    height: 56px !important;
     width: auto !important;
-    max-width: calc(100% - 32px);
-}
-[data-testid="stSidebarLogo"] img {
-    height: 72px !important;
-    width: auto !important;
-    max-width: 100%;
+    max-width: calc(100% - 28px);
     object-fit: contain;
 }
 [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:first-child h3 {

@@ -208,7 +208,7 @@ def render_dashboard(case_type: str, module_name: str, case_detail_page: str) ->
                     with info:
                         st.markdown(f"**{row['case_id']}**")
                         st.caption(row["created_at"])
-                    st.caption(f"{row['fail_count']} fail · {row['review_count']} review")
+                    st.caption(f"{row['fail_count']} mismatch · {row['review_count']} review")
                     if st.button("Open", key=f"review_open_{row['case_id']}", icon=":material/arrow_forward:"):
                         st.session_state["selected_case_id"] = row["case_id"]
                         st.switch_page(case_detail_page)
@@ -420,8 +420,8 @@ def render_case_results(
     with st.container(horizontal=True):
         st.metric("Case ID", case_id, border=True)
         st.metric("Accuracy", ui.accuracy_text(accuracy), border=True)
-        st.metric("Pass", counts["PASS"], border=True)
-        st.metric("Fail", counts["FAIL"], border=True, delta=None if not counts["FAIL"] else "exceptions", delta_color="inverse")
+        st.metric("Match", counts["PASS"], border=True)
+        st.metric("Mismatch", counts["FAIL"], border=True, delta=None if not counts["FAIL"] else "exceptions", delta_color="inverse")
         st.metric("Review", counts["REVIEW"], border=True)
 
     with st.container(border=True):

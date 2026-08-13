@@ -5,6 +5,8 @@ import json
 import pandas as pd
 import plotly.graph_objects as go
 
+from check_result import DISPLAY_LABEL
+
 STATUS_COLORS = {"PASS": "#146C3A", "FAIL": "#B3261E", "REVIEW": "#91600A", "N/A": "#5B6472"}
 FONT = dict(family="Inter, Segoe UI, sans-serif", color="#333B47", size=12)
 GRID_COLOR = "#EDEFF2"
@@ -69,14 +71,15 @@ def status_distribution_chart(counts: dict[str, int]) -> go.Figure:
     labels = [s for s in order if counts.get(s, 0) > 0]
     values = [counts[s] for s in labels]
     if not values:
-        labels, values = ["No data"], [1]
+        display_labels, values = ["No data"], [1]
         colors = ["#EEF0F3"]
     else:
         colors = [STATUS_COLORS[s] for s in labels]
+        display_labels = [DISPLAY_LABEL.get(s, s) for s in labels]
     fig = go.Figure(
         data=[
             go.Pie(
-                labels=labels,
+                labels=display_labels,
                 values=values,
                 hole=0.62,
                 marker=dict(colors=colors, line=dict(color="#FFFFFF", width=2)),
@@ -130,7 +133,7 @@ def top_exceptions_chart(flat: pd.DataFrame) -> go.Figure:
     )
     fig = go.Figure()
     if "FAIL" in counts.columns:
-        fig.add_bar(y=counts.index, x=counts["FAIL"], name="Fail", orientation="h", marker_color="#B3261E")
+        fig.add_bar(y=counts.index, x=counts["FAIL"], name="Mismatch", orientation="h", marker_color="#B3261E")
     if "REVIEW" in counts.columns:
         fig.add_bar(y=counts.index, x=counts["REVIEW"], name="Review", orientation="h", marker_color="#91600A")
     fig.update_layout(barmode="stack", showlegend=True, legend=dict(orientation="h", y=-0.15, font=dict(size=10)))

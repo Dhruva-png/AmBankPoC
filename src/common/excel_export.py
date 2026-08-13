@@ -9,7 +9,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 import case_store
-from check_result import CheckResult
+from check_result import CheckResult, DISPLAY_LABEL
 
 HEADER_FILL = PatternFill(start_color="12161F", end_color="12161F", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
@@ -56,7 +56,7 @@ def _exceptions_block(ws, row: int, title: str, results: list[CheckResult], side
 
     for r in exceptions:
         values = [
-            r.kct, r.check, r.status,
+            r.kct, r.check, DISPLAY_LABEL.get(r.status, r.status),
             f"{r.confidence:.0f}%" if r.confidence is not None else "",
             getattr(r, value_attr), r.note,
         ]
@@ -232,7 +232,7 @@ def build_consolidated_workbook(
     ws.title = "Cases"
     headers = [
         "Case ID", "Customer", "Completed At", "Processing Time", "Status", "Accuracy",
-        "Pass", "Fail", "Review", "N/A", "Remarks",
+        "Match", "Mismatch", "Review", "N/A", "Remarks",
     ]
     ws.append(headers)
     for col in range(1, len(headers) + 1):
@@ -269,7 +269,7 @@ def build_consolidated_workbook(
             if r.get("status") not in ("FAIL", "REVIEW"):
                 continue
             ws2.append([
-                row["case_id"], r.get("kct"), r.get("check"), r.get("status"),
+                row["case_id"], r.get("kct"), r.get("check"), DISPLAY_LABEL.get(r.get("status"), r.get("status")),
                 f"{r['confidence']:.0f}%" if r.get("confidence") is not None else "",
                 r.get("note"),
             ])

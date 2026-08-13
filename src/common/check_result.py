@@ -6,6 +6,10 @@ from dataclasses import dataclass
 
 PASS, FAIL, REVIEW, NA = "PASS", "FAIL", "REVIEW", "N/A"
 
+# Internal status codes stay PASS/FAIL (every comparison in compare.py keys off these
+# exact strings) -- this is only for text a person actually reads, e.g. the markdown report.
+DISPLAY_LABEL = {PASS: "Match", FAIL: "Mismatch", REVIEW: "Review", NA: "N/A"}
+
 MAX_CONFIDENCE = 98.0
 
 # Cases created before uploads preserved their real filename have a random tempfile name
@@ -77,10 +81,10 @@ def to_markdown_table(results: list[CheckResult], left_label: str, right_label: 
     for r in results:
         conf = f"{r.confidence:.0f}%" if r.confidence is not None else "—"
         lines.append(
-            f"| {r.kct} | {r.check} | **{r.status}** | {conf} | {r.left_value.replace(chr(10), ' / ')[:160]} "
+            f"| {r.kct} | {r.check} | **{DISPLAY_LABEL.get(r.status, r.status)}** | {conf} | {r.left_value.replace(chr(10), ' / ')[:160]} "
             f"| {r.right_value.replace(chr(10), ' / ')[:160]} | {clean_source_text(r.source_left)} "
             f"| {clean_source_text(r.source_right)} | {r.note} |"
         )
     counts = summarize(results)
-    lines += ["", f"**Summary**: {counts[PASS]} Pass, {counts[FAIL]} Fail, {counts[REVIEW]} Review, {counts[NA]} N/A."]
+    lines += ["", f"**Summary**: {counts[PASS]} Match, {counts[FAIL]} Mismatch, {counts[REVIEW]} Review, {counts[NA]} N/A."]
     return "\n".join(lines)

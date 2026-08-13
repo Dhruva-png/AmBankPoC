@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from check_result import clean_source_text
+from check_result import DISPLAY_LABEL, clean_source_text
 
 _TEMP_FILENAME_RE = re.compile(r"^tmp[a-z0-9_]{6,}\.\w+$", re.IGNORECASE)
 
@@ -214,8 +214,7 @@ def selectable_table(df: pd.DataFrame, column_config: dict, key: str):
     return 0
 
 
-STATUS_DISPLAY_LABEL = {"PASS": "Pass", "FAIL": "Fail", "REVIEW": "Review", "N/A": "N/A"}
-CHECK_STATUS_ROW_BG = {"Pass": "#E7F6ED", "Fail": "#FCEAE9", "Review": "#FBF1DE", "N/A": "#EEF0F3"}
+CHECK_STATUS_ROW_BG = {"Match": "#E7F6ED", "Mismatch": "#FCEAE9", "Review": "#FBF1DE", "N/A": "#EEF0F3"}
 
 
 def validation_dataframe(results: list, left_label: str, right_label: str) -> pd.DataFrame:
@@ -223,7 +222,7 @@ def validation_dataframe(results: list, left_label: str, right_label: str) -> pd
         {
             "KCT": r.kct,
             "Check": short_label(r.check),
-            "Status": STATUS_DISPLAY_LABEL.get(r.status, r.status),
+            "Status": DISPLAY_LABEL.get(r.status, r.status),
             "Confidence": confidence_text(r.confidence),
             left_label: _preview(r.left_value, limit=110),
             right_label: _preview(r.right_value, limit=110),
@@ -237,9 +236,9 @@ def validation_dataframe(results: list, left_label: str, right_label: str) -> pd
 def validation_legend() -> None:
     with st.container(horizontal=True):
         st.caption("Legend:")
-        st.badge("Pass", color="green", icon=":material/check_circle:")
+        st.badge("Match", color="green", icon=":material/check_circle:")
         st.badge("Review", color="orange", icon=":material/warning:")
-        st.badge("Fail", color="red", icon=":material/error:")
+        st.badge("Mismatch", color="red", icon=":material/error:")
         st.badge("N/A", color="gray", icon=":material/remove_circle:")
 
 
@@ -306,7 +305,7 @@ def status_banner(counts: dict, noun: str = "case") -> None:
     elif review:
         st.warning(f"{review} item(s) flagged for manual review.", icon=":material/warning:")
     else:
-        st.success(f"All controls passed for this {noun}.", icon=":material/check_circle:")
+        st.success(f"All controls matched for this {noun}.", icon=":material/check_circle:")
 
 
 def document_chips(documents: list[dict]) -> None:

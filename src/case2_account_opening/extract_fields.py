@@ -1,38 +1,39 @@
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
-from extract_text import extract_text, render_pdf_first_page, render_pdf_pages_to_images  # noqa: E402
+from extract_text import render_pdf_first_page, render_pdf_pages_to_images  # noqa: E402
 from classify import classify_image  # noqa: E402
 import ai_client  # noqa: E402
 
 VISION_SCALE = 1.3
 
 CATEGORIES = {
-    "cls": (
-        "CLS core-banking screen extract -- a system printout with fields like 'Customer name', "
-        "'ID(BIZ REG) No', 'CIF number', 'Application No', address inquiry blocks, and a "
-        "Guarantor list."
+    "aof": (
+        "i-Invest Account Opening Form for an individual -- an AmInvest/AmFunds form with "
+        "sections for Particulars of Principal Applicant (name, NRIC, address, employer), "
+        "investment details, and signing declarations. Fields are often written one character "
+        "per box."
     ),
-    "email": (
-        "Scanned email thread requesting CCRIS/CIF creation, showing email headers "
-        "(From/To/Subject) and message bodies between a maker and a checker."
+    "id": (
+        "Scanned Malaysian identity card (MyKad) -- shows a photo, the holder's name, NRIC "
+        "number, address, and 'WARGANEGARA' nationality marker, usually front and back."
     ),
-    "ssm": (
-        "SSM (Companies Commission of Malaysia) company search result -- an official company "
-        "profile with company name, registration number, incorporation date, registered "
-        "address, and a directors/officers list."
+    "fatca": (
+        "Foreign Account Tax Compliance Act (FATCA) and Common Reporting Standard (CRS) "
+        "Self-Certification form -- a Yes/No questionnaire about U.S. person and tax residency "
+        "status, ending in a signature and date."
     ),
-    "ccris_app": (
-        "New CCRIS Enhancement application form -- a bank form with a 'Facility Details' "
-        "section and an 'AMOUNT APPLIED' field written as individual digit boxes."
+    "vca": (
+        "Vulnerable Client Assessment form -- assesses whether the applicant is a 'vulnerable "
+        "client' (age, financial hardship, capability), with a Yes/No outcome, signature and date."
     ),
-    "guarantor_app": (
-        "Guarantor Input Form -- a bank form capturing a guarantor's name, registered address, "
-        "business registration or NRIC number, and relationship to the applicant."
+    "netreveal": (
+        "AmBank NetReveal AML/sanctions screening printout -- a web tool screenshot showing "
+        "'subject_name', 'subject_identification_number' fields and a results table of check "
+        "names (TerroristAndSanctions, PEP, BNMEnforcement, etc.) with Content/Matches columns."
     ),
 }
 
@@ -49,201 +50,179 @@ def classify_document(path: str, render_dir: str) -> str:
     return classify_image(page_image, CATEGORIES)
 
 
-def extract_cls_fields(path: str) -> dict:
-    text = extract_text(path)
-    doc_name = Path(path).name
-
-    def find(pattern, default=""):
-        m = re.search(pattern, text)
-        return m.group(1).strip() if m else default
-
-    customer_name = find(r"Customer name[\s.]*:?\s*(.+)")
-    if not customer_name:
-        customer_name = find(r"Applicant Name[\s.]*:?\s*(.+)")
-
-    reg_no_1 = find(r"ID\(BIZ REG\) No 1 no\.[\s.]*:?\s*(\S+)")
-    reg_no_2 = find(r"ID\(BIZ REG\) No 2 no\.[\s.]*:?\s*(\S+)")
-    cif_number = find(r"CIF number[\s.]*:?\s*(\S+)")
-    application_no = find(r"Application No[\s.]*:?\s*(\S+)")
-
-    industry = find(r"Industry Grp/Sector Code[\s.]*:?\s*(.+)")
-    business_nature = find(r"Bus/Type[\s.]*(.+)")
-
-    def parse_address_blocks() -> dict[str, str]:
-        blocks: dict[str, str] = {}
-        for chunk in text.split("Customer address inquiry")[1:]:
-            addr_type = re.search(r"Address Type[\s.]*([A-Z])\s+(.+)", chunk)
-            if not addr_type:
-                continue
-            fields = []
-            for label in ("Address line 1", "Address line 2", "Address line 3"):
-                m = re.search(re.escape(label) + r"[\s.]*(.*)", chunk)
-                if m and m.group(1).strip():
-                    fields.append(m.group(1).strip())
-            postcode = re.search(r"Local Postcode/City\.?[\s.]*(.*)", chunk)
-            if postcode and postcode.group(1).strip():
-                fields.append(postcode.group(1).strip())
-            blocks[addr_type.group(1)] = ", ".join(fields)
-        return blocks
-
-    addr_blocks = parse_address_blocks()
-    registered_address = addr_blocks.get("R", "")
-    correspondence_address = addr_blocks.get("C", "")
-
-    guarantors = []
-    for m in re.finditer(r"^Guarantor\s*(\d+)(.+?)\s+(?:Yes|No)\s+\d+\s+[YN]\s*$", text, re.MULTILINE):
-        guarantors.append({"facility_cif": m.group(1), "short_name": m.group(2).strip()})
-
-    facility_amount = find(r"(\d[\d,]*\.\d{2})\s+MYR")
-    purpose_code = find(r"Purpose Code\.+:\s*(\d+)")
-    incorporation_date = find(r"Date of birth/Reg\.[\s.]*:?\s*(\d{1,2}/\d{1,2}/\d{4})")
-
-    doc_source = f"{doc_name} — CLS core-banking screen extract"
-    return {
-        "source_file": str(path),
-        "customer_name": customer_name,
-        "registration_no_1": reg_no_1,
-        "registration_no_2": reg_no_2,
-        "cif_number": cif_number,
-        "application_no": application_no,
-        "business_nature": (industry or business_nature),
-        "registered_address": registered_address,
-        "correspondence_address": correspondence_address,
-        "guarantors": guarantors,
-        "facility_amount": facility_amount,
-        "purpose_code": purpose_code,
-        "incorporation_date": incorporation_date,
-        "sources": {k: doc_source for k in (
-            "customer_name", "registration_no_1", "registration_no_2", "business_nature",
-            "registered_address", "correspondence_address", "guarantors", "facility_amount",
-            "incorporation_date",
-        )},
-    }
-
-
-_EMAIL_THREAD_PROMPT = """This image is one page of a scanned/screenshotted email thread requesting CCRIS/CIF creation for a bank corporate customer. Looking only at what is visible on this page, extract:
-- whether any message visible on this page was rejected/declined by the checker
-- whether any message visible on this page is a final confirmation that the application/CCRIS was created
-- the names of everyone who sent a message visible on this page (maker and/or checker)
-- the customer/company name mentioned on this page, exactly as written (even if it differs from a name used elsewhere)
-
-Return strict JSON only, using false/[]/"" for anything not visible on this page:
-{"has_rejection_cycle": true or false, "has_final_confirmation": true or false, "participants": ["name1", "name2"], "customer_name": ""}"""
-
-
-def extract_email_fields(path: str, render_dir: str) -> dict:
-    doc_name = Path(path).name
-    doc_source = f"{doc_name} (AI vision, all pages)"
-    if not ai_client.is_configured():
-        return {
-            "source_file": str(path), "error": "AI engine not configured",
-            "has_rejection_cycle": None, "has_final_confirmation": None,
-            "participants": [], "customer_name": "", "sources": {},
-        }
-    pages = _render_for_vision(path, render_dir)
-    images = [ai_client.image_file_to_b64(p) for p in pages]
-    rejected, confirmed, participants, customer_name = False, False, set(), ""
-    for image in images:
-        data = ai_client.vision_json_multi(_EMAIL_THREAD_PROMPT, [image], max_tokens=1200)
-        rejected = rejected or bool(data.get("has_rejection_cycle"))
-        confirmed = confirmed or bool(data.get("has_final_confirmation"))
-        participants.update(data.get("participants", []) or [])
-        if not customer_name and data.get("customer_name"):
-            customer_name = data["customer_name"]
-    return {
-        "source_file": str(path),
-        "has_rejection_cycle": rejected,
-        "has_final_confirmation": confirmed,
-        "participants": sorted(participants),
-        "customer_name": customer_name,
-        "sources": {
-            "has_rejection_cycle": doc_source,
-            "has_final_confirmation": doc_source,
-            "participants": doc_source,
-            "customer_name": doc_source,
-        },
-    }
-
-
-_SSM_PAGE1_PROMPT = """Extract the following fields from this SSM (Companies Commission of Malaysia) company search result page. Return strict JSON only, using "" for anything not visible:
-{"name": "", "registration_no": "", "incorporation_date": "", "registered_address": "", "business_address": "", "nature_of_business": ""}"""
-
-_SSM_DIRECTORS_PROMPT = """This is a Directors/Officers page from an SSM company search result. Extract every listed director/officer/secretary as a JSON array. Return strict JSON only:
-{"directors": [{"name": "", "ic_or_passport": "", "designation": "", "date_of_appointment": ""}]}"""
-
-_CCRIS_APP_PROMPT = """This is a New CCRIS Enhancement application form (Facility Details section). The "AMOUNT APPLIED" field is written as one digit per individual box (like a cheque amount) -- read every box left to right and concatenate all of them into a single number; do not stop at the first few boxes. Extract Facility 1's details and who prepared/checked the form. Return strict JSON only, using "" for anything not visible:
-{"facility_1_amount_applied": "", "facility_1_purpose_code": "", "location_of_utilization": "", "prepared_by": "", "checked_by": ""}"""
-
-_GUARANTOR_APP_PROMPT = """This is a Guarantor Input Form from a bank CIF creation package. Extract the guarantor's details. Return strict JSON only, using "" for anything not visible:
-{"guarantor_name": "", "registered_address": "", "bus_reg_no_or_nric": "", "ssm_id": "", "guarantor_to_applicant_relationship": ""}"""
-
-
 def _vision_extract(image_path: str, prompt: str, max_tokens: int = 1200) -> dict:
     b64, mime = ai_client.image_file_to_b64(image_path)
     return ai_client.vision_json(prompt, b64, mime, max_tokens=max_tokens)
 
 
-def extract_ssm_fields(path: str, render_dir: str) -> dict:
+_AOF_PROMPT = """This is page 1 of an i-Invest Account Opening Form (individual). Section A "PARTICULARS OF PRINCIPAL APPLICANT" has fields written one character per box (like a cheque) -- read every box left to right and concatenate into a single value; do not stop at the first few boxes or drop leading/trailing characters.
+
+Extract the Principal Applicant's:
+- full name (field 1)
+- new NRIC number (field 3, digits only)
+- date of birth (field 5)
+- residential address including postcode and country (field 6)
+- nationality (field 9)
+- name of employer (field 18)
+
+Return strict JSON only, using "" for anything not visible:
+{"name": "", "nric": "", "date_of_birth": "", "residential_address": "", "nationality": "", "employer": ""}"""
+
+_AOF_SIGNATURE_PROMPT = """This page of an i-Invest Account Opening Form contains section G/I with the applicant's signing declaration and signature block. Extract the printed name of the Principal Applicant next to the signature, and the date signed. Return strict JSON only, using "" for anything not visible:
+{"signatory_name": "", "signature_date": ""}"""
+
+
+def extract_aof_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not ai_client.is_configured():
         return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
     pages = _render_for_vision(path, render_dir)
-    corporate = _vision_extract(pages[0], _SSM_PAGE1_PROMPT) if pages else {}
-    directors = {}
-    if len(pages) >= 3:
-        directors = _vision_extract(pages[2], _SSM_DIRECTORS_PROMPT, max_tokens=1800)
+    principal = _vision_extract(pages[0], _AOF_PROMPT) if pages else {}
+    # The signature block is on a later page (varies by scan) -- try the pages most likely to
+    # carry it rather than assuming a fixed page number, and keep the first usable hit.
+    signature: dict = {}
+    signature_page_idx = None
+    for idx in range(len(pages) - 1, max(len(pages) - 4, -1), -1):
+        candidate = _vision_extract(pages[idx], _AOF_SIGNATURE_PROMPT)
+        if candidate.get("signatory_name"):
+            signature, signature_page_idx = candidate, idx
+            break
 
     doc_source_p1 = f"{doc_name} (page 1, AI vision)"
-    doc_source_p3 = f"{doc_name} (page 3, AI vision)"
+    doc_source_sig = f"{doc_name} (page {signature_page_idx + 1}, AI vision)" if signature_page_idx is not None else doc_source_p1
     return {
         "source_file": str(path),
-        "name": corporate.get("name", ""),
-        "registration_no": corporate.get("registration_no", ""),
-        "incorporation_date": corporate.get("incorporation_date", ""),
-        "registered_address": corporate.get("registered_address", ""),
-        "business_address": corporate.get("business_address", ""),
-        "nature_of_business": corporate.get("nature_of_business", ""),
-        "directors": directors.get("directors", []),
+        "name": principal.get("name", ""),
+        "nric": principal.get("nric", ""),
+        "date_of_birth": principal.get("date_of_birth", ""),
+        "residential_address": principal.get("residential_address", ""),
+        "nationality": principal.get("nationality", ""),
+        "employer": principal.get("employer", ""),
+        "signatory_name": signature.get("signatory_name", ""),
+        "signature_date": signature.get("signature_date", ""),
         "sources": {
-            "name": doc_source_p1, "registration_no": doc_source_p1,
-            "registered_address": doc_source_p1, "business_address": doc_source_p1,
-            "nature_of_business": doc_source_p1, "directors": doc_source_p3,
+            "name": doc_source_p1, "nric": doc_source_p1, "date_of_birth": doc_source_p1,
+            "residential_address": doc_source_p1, "nationality": doc_source_p1, "employer": doc_source_p1,
+            "signatory_name": doc_source_sig, "signature_date": doc_source_sig,
         },
     }
 
 
-def extract_ccris_application_fields(path: str, render_dir: str) -> dict:
+_ID_PROMPT = """This is a scanned Malaysian identity card (MyKad). Extract exactly what is printed on the card:
+- full name
+- NRIC number (format XXXXXX-XX-XXXX or run together)
+- address (as printed on the card)
+
+Return strict JSON only, using "" for anything not visible:
+{"name": "", "nric": "", "address": ""}"""
+
+
+def extract_id_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not ai_client.is_configured():
         return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
     pages = _render_for_vision(path, render_dir)
-    data = _vision_extract(pages[0], _CCRIS_APP_PROMPT) if pages else {}
-    doc_source = f"{doc_name} (page 1, AI vision)"
+    data = _vision_extract(pages[0], _ID_PROMPT) if pages else {}
+    doc_source = f"{doc_name} (AI vision)"
     return {
         "source_file": str(path),
-        "facility_1_amount_applied": data.get("facility_1_amount_applied", ""),
-        "facility_1_purpose_code": data.get("facility_1_purpose_code", ""),
-        "location_of_utilization": data.get("location_of_utilization", ""),
-        "prepared_by": data.get("prepared_by", ""),
-        "checked_by": data.get("checked_by", ""),
-        "sources": {k: doc_source for k in (
-            "facility_1_amount_applied", "facility_1_purpose_code", "location_of_utilization",
-        )},
+        "name": data.get("name", ""),
+        "nric": data.get("nric", ""),
+        "address": data.get("address", ""),
+        "sources": {k: doc_source for k in ("name", "nric", "address")},
     }
 
 
-def extract_guarantor_application_fields(path: str, render_dir: str) -> dict:
+_FATCA_PROMPT = """This is a FATCA/CRS Self-Certification form. Extract:
+- whether Part A indicates the person IS a U.S. person/citizen/resident (true if any "Yes" is ticked in the U.S. Indicia Status table, false if all are "No")
+- the printed/signed name in the signature block (Name field, not the pre-printed applicant name if handwritten differs)
+- the date next to the signature
+
+Return strict JSON only, using false/"" for anything not visible or not determinable:
+{"is_us_person": false, "signatory_name": "", "signature_date": ""}"""
+
+
+def extract_fatca_fields(path: str, render_dir: str) -> dict:
     doc_name = Path(path).name
     if not ai_client.is_configured():
-        return {"source_file": str(path), "error": "AI engine not configured", "guarantors": [], "sources": {}}
+        return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
     pages = _render_for_vision(path, render_dir)
-    guarantors = []
-    for i, page in enumerate(pages, start=1):
-        data = _vision_extract(page, _GUARANTOR_APP_PROMPT)
-        data["_source"] = f"{doc_name} (page {i}, AI vision)"
-        guarantors.append(data)
+    combined: dict = {}
+    for page in pages:
+        data = _vision_extract(page, _FATCA_PROMPT)
+        if data.get("signatory_name"):
+            combined = data
+            break
+        if not combined:
+            combined = data
+    doc_source = f"{doc_name} (AI vision)"
     return {
         "source_file": str(path),
-        "guarantors": guarantors,
-        "sources": {"guarantors": f"{doc_name} (AI vision, all pages)"},
+        "is_us_person": bool(combined.get("is_us_person")),
+        "signatory_name": combined.get("signatory_name", ""),
+        "signature_date": combined.get("signature_date", ""),
+        "sources": {k: doc_source for k in ("is_us_person", "signatory_name", "signature_date")},
+    }
+
+
+_VCA_PROMPT = """This is a Vulnerable Client Assessment form. Extract:
+- the applicant's name (Name of Applicant field)
+- the applicant's NRIC/passport number
+- whether the client is classified as a Vulnerable Client (true if "Yes" is marked in section (A) final tick-box, false if "No")
+- the printed/signed name in the Acknowledgement signature block (section D), and the date
+
+Return strict JSON only, using false/"" for anything not visible:
+{"applicant_name": "", "nric": "", "is_vulnerable": false, "signatory_name": "", "signature_date": ""}"""
+
+
+def extract_vca_fields(path: str, render_dir: str) -> dict:
+    doc_name = Path(path).name
+    if not ai_client.is_configured():
+        return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
+    pages = _render_for_vision(path, render_dir)
+    combined: dict = {}
+    for page in pages:
+        data = _vision_extract(page, _VCA_PROMPT)
+        if data.get("applicant_name") or data.get("signatory_name"):
+            combined.update({k: v for k, v in data.items() if v not in (None, "", False)})
+    doc_source = f"{doc_name} (AI vision)"
+    return {
+        "source_file": str(path),
+        "applicant_name": combined.get("applicant_name", ""),
+        "nric": combined.get("nric", ""),
+        "is_vulnerable": bool(combined.get("is_vulnerable")),
+        "signatory_name": combined.get("signatory_name", ""),
+        "signature_date": combined.get("signature_date", ""),
+        "sources": {k: doc_source for k in ("applicant_name", "nric", "is_vulnerable", "signatory_name", "signature_date")},
+    }
+
+
+_NETREVEAL_PROMPT = """This is an AmBank NetReveal AML/sanctions screening printout for one subject. Extract:
+- the "subject_name" field value
+- the "subject_identification_number" field value
+- whether the "Results of Single Lookup" table has ANY non-empty value in its Content or Matches columns for any check name (true = at least one hit/match found, false = every row's Content/Matches columns are blank, meaning a clean screening result)
+
+Return strict JSON only, using "" or false for anything not visible:
+{"subject_name": "", "subject_identification_number": "", "has_matches": false}"""
+
+
+def extract_netreveal_fields(path: str, render_dir: str) -> dict:
+    doc_name = Path(path).name
+    if not ai_client.is_configured():
+        return {"source_file": str(path), "error": "AI engine not configured", "sources": {}}
+    pages = _render_for_vision(path, render_dir)
+    combined: dict = {}
+    has_matches = False
+    for page in pages:
+        data = _vision_extract(page, _NETREVEAL_PROMPT)
+        has_matches = has_matches or bool(data.get("has_matches"))
+        if data.get("subject_name") and not combined.get("subject_name"):
+            combined = data
+    doc_source = f"{doc_name} (AI vision, all pages)"
+    return {
+        "source_file": str(path),
+        "subject_name": combined.get("subject_name", ""),
+        "subject_identification_number": combined.get("subject_identification_number", ""),
+        "has_matches": has_matches,
+        "sources": {k: doc_source for k in ("subject_name", "subject_identification_number", "has_matches")},
     }

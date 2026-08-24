@@ -6,31 +6,26 @@ two existing manual KCT procedures:
 
 - **Case 1 — Credit Facilities**: compare an issued Letter of Offer (LO) against the
   approved Credit Paper.
-- **Case 2 — Account Opening (CIF)**: compare CLS/CCRIS system data against the
-  supporting documents used to create a corporate Customer Information File.
+- **Case 2 — Account Opening**: compare an individual investor's Account Opening Form
+  against their Identity Document, FATCA/CRS Declaration, Vulnerable Client Assessment
+  and AML/NetReveal screening result.
 
 Full scope, hypotheses, KCTs, exception catalogues and proposed AI capabilities for both
 cases are written up in [`docs/poc-scope.md`](docs/poc-scope.md), extracted from the
 source deck [`docs/POC Scope - Case 1 and Case 2.pptx`](<docs/POC Scope - Case 1 and Case 2.pptx>).
 
-## ⚠️ Sample data is not fully anonymized
+## ⚠️ Sample data is not anonymized
 
-The sample documents were clearly *intended* to be anonymized — files are named "XYZ Sdn
-Bhd" and some pages carry an "XYZ SDN BHD" placeholder stamp — but the redaction is
-**incomplete**:
-
-- `samples/case-2-account-opening/xyz-sdn-bhd/XYZ Sdn Bhd - CLS Extract.pdf` is a raw,
-  unredacted core-banking text export. It shows the real customer name
-  (**Airoceanic Express Sdn Bhd**), real CIF/application numbers, real guarantor names,
-  and real relationship-manager names throughout — no placeholder was applied.
-- `XYZ Sdn Bhd - Email Request.pdf` leaks the real customer name in one un-redacted
-  subject line, plus real AmBank staff names and `@ambankgroup.com` email addresses.
 - The Case 1 set (`samples/case-1-credit-facilities/hadyan-sdn-bhd/`) is **not
   anonymized at all** — it's a real, "PRIVATE & CONFIDENTIAL" Credit Paper and Letter of
   Offer for a real customer (Hadyan Sdn Bhd), including a guarantor's full NRIC number
   and multiple AmBank officers' names and signatures.
 - The Guarantor Application Form also contains a second individual guarantor's full
   NRIC/DOB and financials.
+- The Case 2 set (`samples/case-2-account-opening/`) contains real individual
+  customers' Account Opening Forms, MyKad scans, FATCA/VCA declarations and AML
+  screening results, including full names, NRIC numbers and residential addresses — not
+  anonymized.
 
 This repo has a live GitHub remote (`origin` →
 `https://github.com/Dhruva-png/AmBankPoC.git`). Confirmed with the repo owner: commit
@@ -57,14 +52,14 @@ samples/
       generated/exception-report.md  Output of src/case1_credit_facilities/compare.py
       generated/exception-report.json
   case-2-account-opening/
-    xyz-sdn-bhd/
-      XYZ Sdn Bhd - Email Request.pdf
-      XYZ Sdn Bhd - CCRIS Application Form.pdf
-      XYZ Sdn Bhd - Guarantor Application Form.pdf
-      XYZ Sdn Bhd - SSM Search.pdf
-      XYZ Sdn Bhd - CLS Extract.pdf
-      XYZ Sdn Bhd - CCRIS Screen Extract.pdf
-      notes.md                       Extracted fields + preliminary KCT read
+    deepan-raj-al-gunalan/
+    mohd-syafiq-bin-zukila/
+    norazliana-binti-mohd-azmi/
+      Account Opening Form.pdf
+      Identity Document.pdf
+      FATCA-CRS Declaration.pdf
+      Vulnerable Client Assessment.pdf
+      AML Screening (NetReveal).pdf
 requirements.txt
 ```
 
@@ -85,21 +80,21 @@ but content is untouched from what was provided.
   covenant as `REVIEW` rather than guessing, and was honest that Maker-Checker timing
   (KCT-00006/07) isn't verifiable from this document pair (the Credit Paper's approval
   signatures are a scanned image, not text).
-- Note: `XYZ Sdn Bhd - CCRIS Application Form.pdf`, `Guarantor Application Form.pdf` and
-  `SSM Search.pdf` are scanned/flattened images with no text layer — an OCR step (e.g.
-  Tesseract, or a vision-capable model) will be needed before they can be parsed
-  programmatically. `CLS Extract.pdf` and `Email Request.pdf` are text-based PDFs and
-  parsed directly.
+- **Case 2 is implemented end-to-end**: `src/case2_account_opening/` classifies and
+  vision-extracts fields from all five account-opening documents (all are scanned
+  images, no text layer, so extraction is vision-model-based throughout), then runs the
+  Case 2 KCT/exception checks. Verified live against all three real customer samples —
+  correctly matched/flagged every field, including catching a genuine address mismatch
+  between Norazliana's AOF and ID document.
 
 ## Suggested next steps (for development)
-1. **Case 2** — same "extract, then compare" pattern, next: adapt
-   `src/common/extract_text.py`/a new `src/case2_account_opening/` package to the CLS/
-   CCRIS/Application/Guarantor/SSM document set, with an OCR or vision-model step for
-   the three scanned/image PDFs (see `src/README.md` for what's already scoped out).
-2. Case 1's purpose-matching (KCT-00002) is currently a text diff, not a semantic
+1. Case 1's purpose-matching (KCT-00002) is currently a text diff, not a semantic
    comparison — the natural next iteration is routing genuinely-differing purpose text
    to an LLM call for a real Pass/Fail judgement instead of always returning `REVIEW`.
-3. Expand sample coverage — each case currently has exactly one customer sample; the
-   KCT methodology calls for 2–10 samples depending on testing frequency, so more
-   samples (ideally with some genuinely clean and some genuinely exception-bearing) will
-   be needed to validate the AI approach before a pilot.
+2. Expand sample coverage further — Case 2 now has three customer samples (Case 1 still
+   has one); the KCT methodology calls for 2–10 samples depending on testing frequency.
+3. The original sample zip also contained four customer folders following an internal
+   "PRS"/system-verification pattern (numbered screenshots, "Checked & Verified" cover
+   sheets) structurally different from Case 2's document-reconciliation model —
+   deliberately left out of this rebuild; worth scoping as a separate case type if
+   needed.

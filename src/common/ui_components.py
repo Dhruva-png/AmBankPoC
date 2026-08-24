@@ -130,15 +130,14 @@ SHORT_CHECK_LABELS = {
     "LO issued before Maker-Checker approval completed": "LO issuance timing",
     "Evidence of Maker-Checker review and approval": "Maker-Checker approval",
     # Case 2: Account Opening
-    "Customer name in CLS matches SSM": "Customer name",
-    "Registration number in CLS matches SSM": "Registration number",
-    "Registered address in CLS matches SSM": "Registered address",
-    "Business nature in CLS matches SSM": "Business nature",
-    "Date of incorporation matches SSM records": "Date of incorporation",
-    "Director information matches Application Form / SSM": "Director information",
-    "Guarantor information in CLS matches Guarantor Form": "Guarantor information",
-    "CCRIS facility amount matches CCRIS Form": "CCRIS facility amount",
-    "Mandatory CIF supporting documents are present": "Required documents",
+    "Applicant name on AOF matches ID": "Applicant name",
+    "NRIC on AOF matches ID": "NRIC",
+    "Residential address on AOF matches ID": "Residential address",
+    "FATCA/CRS declaration signed by the applicant": "FATCA/CRS signed",
+    "Vulnerable Client Assessment signed by the applicant": "VCA signed",
+    "NetReveal screening subject matches applicant": "Screening subject match",
+    "AML/sanctions screening is clear": "AML screening",
+    "Mandatory account-opening documents are present": "Required documents",
 }
 
 

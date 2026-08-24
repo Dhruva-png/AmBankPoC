@@ -63,12 +63,48 @@ for the result on the Hadyan Sdn Bhd sample.
   2–10 samples depending on testing frequency, so this hasn't been validated against a
   clean case (all-Pass) or a genuinely-Fail case yet.
 
-## Case 2 — Account Opening (CIF) — not started
+## Case 2 — Account Opening (implemented)
 
-Same "extract, then compare" shape, but the source documents are different: CLS/CCRIS
-system screen extracts (already text-based, see
-`samples/case-2-account-opening/xyz-sdn-bhd/notes.md`) compared against the Application
-Form, Guarantor Form, SSM search and CCRIS Form -- three of which are scanned images
-with no text layer, so `common/extract_text.py` will need an OCR or vision-model step
-added before extraction can work on those, unlike Case 1 where every source document had
-a text layer.
+```bash
+python src/case2_account_opening/compare.py \
+  "samples/case-2-account-opening/deepan-raj-al-gunalan/Account Opening Form.pdf" \
+  "samples/case-2-account-opening/deepan-raj-al-gunalan/Identity Document.pdf" \
+  "samples/case-2-account-opening/deepan-raj-al-gunalan/FATCA-CRS Declaration.pdf" \
+  "samples/case-2-account-opening/deepan-raj-al-gunalan/Vulnerable Client Assessment.pdf" \
+  "samples/case-2-account-opening/deepan-raj-al-gunalan/AML Screening (NetReveal).pdf" \
+  "samples/case-2-account-opening/deepan-raj-al-gunalan/generated"
+```
+
+Source documents are an individual investor's Account Opening Form (AOF), MyKad Identity
+Document, FATCA/CRS Self-Certification, Vulnerable Client Assessment (VCA) and an
+AML/NetReveal screening printout -- all scanned images with no text layer, so
+`src/case2_account_opening/extract_fields.py` is vision-model-based throughout (unlike
+Case 1, where every source document had a text layer). The AOF's principal-applicant
+fields are written one character per box, so the extraction prompt explicitly instructs
+reading every box left to right rather than stopping early.
+
+**What it does:**
+1. `classify_document` vision-classifies each uploaded file into one of the five document
+   types so they can be uploaded in any order.
+2. `extract_aof_fields` / `extract_id_fields` / `extract_fatca_fields` /
+   `extract_vca_fields` / `extract_netreveal_fields` each vision-extract that document's
+   fields; the AOF's signature block position varies by scan, so extraction searches
+   backward through the last few pages rather than assuming a fixed page number.
+3. `compare.compare` runs 7 KCTs + 1 exception: applicant name/NRIC/address cross-checked
+   between the AOF and ID (NRIC via deterministic digit comparison, name/address via an
+   AI semantic match), FATCA and VCA signed-by-applicant checks, NetReveal screening
+   subject-matches-applicant (with an NRIC-mismatch override even if the name AI-matches)
+   and screening-is-clear, and a mandatory-documents-present exception.
+
+Verified live against all three real customer samples in
+`samples/case-2-account-opening/` -- correctly matched every field for Deepan Raj and
+Mohd Syafiq, and correctly flagged a genuine AOF-vs-ID address mismatch for Norazliana
+rather than a false pass.
+
+**Known limitations (by design, not yet handled):**
+- Only three customer samples exist; the KCT methodology calls for 2-10 samples
+  depending on testing frequency.
+- The original sample set also included four customer folders following a different,
+  "PRS"/internal-verification pattern (numbered system screenshots, "Checked & Verified"
+  cover sheets) rather than the document-reconciliation model this pipeline assumes --
+  deliberately excluded from this build rather than forced into a bad fit.

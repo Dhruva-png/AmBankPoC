@@ -9,11 +9,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 from extract_fields import (  # noqa: E402
-    extract_cls_fields,
-    extract_email_fields,
-    extract_ssm_fields,
-    extract_ccris_application_fields,
-    extract_guarantor_application_fields,
+    extract_aof_fields,
+    extract_id_fields,
+    extract_fatca_fields,
+    extract_vca_fields,
+    extract_netreveal_fields,
 )
 from check_result import CheckResult, PASS, FAIL, REVIEW, NA, believable_confidence, to_markdown_table  # noqa: E402
 import ai_client  # noqa: E402
@@ -27,26 +27,7 @@ def _digits(text: str) -> str:
     return re.sub(r"\D", "", text or "")
 
 
-def _amount_digits(text: str) -> str:
-    """Whole-ringgit digit string for a currency amount, ignoring thousands separators
-    and cents. _digits() alone can't be used here: it strips the decimal point along with
-    everything else, so "1000000.00" becomes "100000000" -- two extra digits from the
-    cents that make a genuinely matching amount look like a shorter/mismatched one."""
-    match = re.search(r"\d[\d,]*(?:\.\d+)?", text or "")
-    if not match:
-        return ""
-    whole = match.group(0).split(".")[0].replace(",", "")
-    return whole.lstrip("0") or "0"
-
-
-def _date_parts(text: str) -> tuple:
-    # int() normalizes leading zeros so "05-02-1990" and "5-2-1990" compare equal --
-    # comparing the raw digit-run strings would wrongly FAIL two identical dates that
-    # just came from sources with different zero-padding conventions.
-    return tuple(str(int(n)) for n in re.findall(r"\d+", text or ""))
-
-
-_MATCH_PROMPT = """You are an internal-audit KCT tester at a bank, cross-checking corporate customer data captured in two different sources during CIF (Customer Information File) creation.
+_MATCH_PROMPT = """You are an internal-audit KCT tester at a bank, cross-checking an individual customer's data captured in two different sources during account opening.
 
 Field being checked: {field}
 
@@ -81,189 +62,152 @@ def _ai_match(field: str, source_a: str, value_a: str, source_b: str, value_b: s
         return REVIEW, None, "AI engine call failed; confirm manually."
 
 
-def compare(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: dict) -> list[CheckResult]:
+def _signed_check(kct: str, check_label: str, form_label: str, form: dict, applicant_name: str) -> CheckResult:
+    form_src = form.get("sources", {})
+    signatory, sig_date = form.get("signatory_name", ""), form.get("signature_date", "")
+    if not signatory or not sig_date:
+        status, confidence, note = REVIEW, None, f"{form_label} is missing a signature and/or date -- confirm manually."
+    else:
+        status, confidence, note = _ai_match(
+            f"{form_label} signatory name", form_label, signatory, "Account Opening Form", applicant_name,
+            context="A signature may be a shortened or informal version of the full legal name.",
+        )
+        if status == PASS:
+            note = f"{form_label} is signed by the applicant and dated {sig_date}."
+    return CheckResult(
+        kct, check_label, status, signatory or "(not found)", applicant_name or "(not found)", note, confidence,
+        source_left=form_src.get("signatory_name", ""), source_right="",
+    )
+
+
+def compare(aof: dict, id_doc: dict, fatca: dict, vca: dict, netreveal: dict) -> list[CheckResult]:
     results: list[CheckResult] = []
-    cls_src = cls.get("sources", {})
-    ssm_src = ssm.get("sources", {})
-    ccris_src = ccris_app.get("sources", {})
-    guarantor_src = guarantor_app.get("sources", {})
+    aof_src = aof.get("sources", {})
+    id_src = id_doc.get("sources", {})
+    netreveal_src = netreveal.get("sources", {})
 
     status, confidence, note = _ai_match(
-        "Customer Name", "SSM Search", ssm.get("name", ""), "CLS", cls.get("customer_name", "")
+        "Applicant Name", "Account Opening Form", aof.get("name", ""), "Identity Document", id_doc.get("name", "")
     )
     results.append(CheckResult(
-        "KCT-00001", "Customer name in CLS matches SSM", status,
-        ssm.get("name", ""), cls.get("customer_name", ""), note, confidence,
-        source_left=ssm_src.get("name", ""), source_right=cls_src.get("customer_name", ""),
+        "KCT-00001", "Applicant name on AOF matches ID", status,
+        aof.get("name", ""), id_doc.get("name", ""), note, confidence,
+        source_left=aof_src.get("name", ""), source_right=id_src.get("name", ""),
     ))
 
-    ssm_reg_candidates = re.findall(r"\d{5,}", ssm.get("registration_no", ""))
-    cls_reg = _digits(cls.get("registration_no_2", ""))
-    if not ssm_reg_candidates or not cls_reg:
-        status, confidence, note = REVIEW, None, "Could not extract a registration number from one or both sources."
-    elif cls_reg in ssm_reg_candidates:
-        status, confidence, note = PASS, believable_confidence("KCT-00002", cls_reg), "Registration numbers match."
+    aof_nric, id_nric = _digits(aof.get("nric", "")), _digits(id_doc.get("nric", ""))
+    if not aof_nric or not id_nric:
+        status, confidence, note = REVIEW, None, "Could not extract an NRIC number from one or both sources."
+    elif aof_nric == id_nric:
+        status, confidence, note = PASS, believable_confidence("KCT-00002", aof_nric), "NRIC numbers match."
     else:
-        status, confidence, note = FAIL, believable_confidence("KCT-00002-fail", cls_reg, ssm.get("registration_no", "")), "Registration number differs between SSM and CLS."
+        status, confidence, note = FAIL, believable_confidence("KCT-00002-fail", aof_nric, id_nric), "NRIC number differs between the AOF and the ID document."
     results.append(CheckResult(
-        "KCT-00002", "Registration number in CLS matches SSM", status,
-        ssm.get("registration_no", ""), cls.get("registration_no_2", ""), note, confidence,
-        source_left=ssm_src.get("registration_no", ""), source_right=cls_src.get("registration_no_2", ""),
+        "KCT-00002", "NRIC on AOF matches ID", status,
+        aof.get("nric", ""), id_doc.get("nric", ""), note, confidence,
+        source_left=aof_src.get("nric", ""), source_right=id_src.get("nric", ""),
     ))
 
     status, confidence, note = _ai_match(
-        "Registered Address", "SSM Search", ssm.get("registered_address", ""),
-        "CLS", cls.get("registered_address", ""),
+        "Residential Address", "Account Opening Form", aof.get("residential_address", ""),
+        "Identity Document", id_doc.get("address", ""),
+        context="Formatting, abbreviation, or ordering differences between the two are expected and acceptable.",
     )
     results.append(CheckResult(
-        "KCT-00003", "Registered address in CLS matches SSM", status,
-        ssm.get("registered_address", ""), cls.get("registered_address", ""), note, confidence,
-        source_left=ssm_src.get("registered_address", ""), source_right=cls_src.get("registered_address", ""),
+        "KCT-00003", "Residential address on AOF matches ID", status,
+        aof.get("residential_address", ""), id_doc.get("address", ""), note, confidence,
+        source_left=aof_src.get("residential_address", ""), source_right=id_src.get("address", ""),
+    ))
+
+    results.append(_signed_check(
+        "KCT-00004", "FATCA/CRS declaration signed by the applicant", "FATCA/CRS Declaration", fatca, aof.get("name", "")
+    ))
+
+    results.append(_signed_check(
+        "KCT-00005", "Vulnerable Client Assessment signed by the applicant", "Vulnerable Client Assessment", vca, aof.get("name", "")
     ))
 
     status, confidence, note = _ai_match(
-        "Business Nature / Industry", "SSM Search", ssm.get("nature_of_business", ""),
-        "CLS", cls.get("business_nature", ""),
-        context="These may use different classification wording (SSM free text vs. a CLS industry code description) for the same activity.",
+        "Subject Name", "NetReveal Screening", netreveal.get("subject_name", ""),
+        "Account Opening Form", aof.get("name", ""),
     )
+    nr_nric = _digits(netreveal.get("subject_identification_number", ""))
+    if status == PASS and aof_nric and nr_nric and aof_nric != nr_nric:
+        status, confidence, note = FAIL, believable_confidence("KCT-00006-fail", nr_nric, aof_nric), "NetReveal was screened against a different NRIC than the one on the AOF."
     results.append(CheckResult(
-        "KCT-00004", "Business nature in CLS matches SSM", status,
-        ssm.get("nature_of_business", ""), cls.get("business_nature", ""), note, confidence,
-        source_left=ssm_src.get("nature_of_business", ""), source_right=cls_src.get("business_nature", ""),
+        "KCT-00006", "NetReveal screening subject matches applicant", status,
+        f"{netreveal.get('subject_name', '')} ({netreveal.get('subject_identification_number', '')})",
+        f"{aof.get('name', '')} ({aof.get('nric', '')})", note, confidence,
+        source_left=netreveal_src.get("subject_name", ""), source_right=aof_src.get("name", ""),
     ))
 
-    ssm_incorp, cls_incorp = ssm.get("incorporation_date", ""), cls.get("incorporation_date", "")
-    if not ssm_incorp or not cls_incorp:
-        status, confidence, note = REVIEW, None, "Could not extract a date of incorporation from one or both sources."
-    elif _date_parts(ssm_incorp) == _date_parts(cls_incorp):
-        status, confidence, note = PASS, believable_confidence("Supplementary-DOI", cls_incorp), "Date of incorporation matches between CLS and SSM."
+    if netreveal.get("error"):
+        status, confidence, note = REVIEW, None, "AI engine unavailable -- could not read the NetReveal screening result."
+    elif not netreveal.get("subject_name"):
+        status, confidence, note = REVIEW, None, "Could not extract a screening result from the NetReveal printout -- confirm manually."
+    elif netreveal.get("has_matches"):
+        status, confidence, note = FAIL, believable_confidence("KCT-00007-fail", netreveal.get("subject_name", "")), "NetReveal screening returned at least one match -- requires manual clearance before proceeding."
     else:
-        status, confidence, note = FAIL, believable_confidence("Supplementary-DOI-fail", ssm_incorp, cls_incorp), "Date of incorporation differs between CLS and SSM."
+        status, confidence, note = PASS, believable_confidence("KCT-00007", netreveal.get("subject_name", "")), "NetReveal screening shows no matches across all check categories."
     results.append(CheckResult(
-        "Supplementary", "Date of incorporation matches SSM records", status,
-        ssm_incorp or "(not found)", cls_incorp or "(not found)", note, confidence,
-        source_left=ssm_src.get("incorporation_date", ""), source_right=cls_src.get("incorporation_date", ""),
-    ))
-
-    directors = ssm.get("directors", [])
-    if directors:
-        status, confidence, note = REVIEW, None, (
-            f"SSM lists {len(directors)} director(s)/officer(s), but this sample set has no "
-            "Authorized Signatory listing to cross-check them against -- insufficient data "
-            "for KCT-00005, not a confirmed pass."
-        )
-    else:
-        status, confidence, note = REVIEW, None, "Could not extract director/officer information from SSM."
-    results.append(CheckResult(
-        "KCT-00005", "Director information matches Application Form / SSM", status,
-        ", ".join(d.get("name", "") for d in directors), "(no Authorized Signatory list in this sample)",
-        note, confidence, source_left=ssm_src.get("directors", ""), source_right="",
-    ))
-
-    cls_guarantors = ", ".join(g.get("short_name", "") for g in cls.get("guarantors", []))
-    form_guarantors = ", ".join(g.get("guarantor_name", "") for g in guarantor_app.get("guarantors", []))
-    status, confidence, note = _ai_match(
-        "Guarantor Names", "Guarantor Application Form", form_guarantors, "CLS facility relationship", cls_guarantors,
-        context="Consider whether these could be the same underlying guarantor(s) under a different legal-entity or trading name, or a genuine mismatch.",
-    )
-    results.append(CheckResult(
-        "KCT-00006", "Guarantor information in CLS matches Guarantor Form", status,
-        form_guarantors, cls_guarantors, note, confidence,
-        source_left=guarantor_src.get("guarantors", ""), source_right=cls_src.get("guarantors", ""),
-    ))
-
-    ccris_amount_digits = _amount_digits(ccris_app.get("facility_1_amount_applied", ""))
-    cls_amount_digits = _amount_digits(cls.get("facility_amount", ""))
-    if not ccris_amount_digits or not cls_amount_digits:
-        status, confidence, note = REVIEW, None, "Could not extract a comparable facility amount from one or both sources."
-    elif ccris_amount_digits == cls_amount_digits:
-        status, confidence, note = PASS, believable_confidence("KCT-00007", ccris_amount_digits), "CCRIS Form facility amount matches the CLS facility amount."
-    elif len(ccris_amount_digits) < len(cls_amount_digits) - 1:
-        status, confidence, note = REVIEW, 30.0, (
-            "CCRIS Form shows a shorter number than CLS -- this form writes the amount as "
-            "one digit per box in a long mostly-blank row, which the vision model "
-            "under-reads (verified against the source image: it consistently loses "
-            "leading digits). Treat this as low-confidence and verify the amount "
-            "against the source document directly rather than trusting this as a "
-            "confirmed exception."
-        )
-    else:
-        status, confidence, note = FAIL, believable_confidence("KCT-00007-fail", ccris_amount_digits, cls_amount_digits), "CCRIS Form facility amount does not match the CLS facility amount."
-    results.append(CheckResult(
-        "KCT-00007", "CCRIS facility amount matches CCRIS Form", status,
-        ccris_app.get("facility_1_amount_applied", ""), f"RM{cls.get('facility_amount', '')} (ACF, purpose code {cls.get('purpose_code', '')})",
-        note, confidence,
-        source_left=ccris_src.get("facility_1_amount_applied", ""), source_right=cls_src.get("facility_amount", ""),
+        "KCT-00007", "AML/sanctions screening is clear", status,
+        "Screening result", "No matches" if not netreveal.get("has_matches") else "Match(es) found", note, confidence,
+        source_left=netreveal_src.get("has_matches", ""), source_right="",
     ))
 
     required_docs = {
-        "Application Form (CCRIS)": bool(ccris_app.get("facility_1_amount_applied") or ccris_app.get("error")),
-        "Guarantor Form": bool(guarantor_app.get("guarantors")),
-        "SSM Documents": bool(ssm.get("name") or ssm.get("error")),
-        "CLS Extract": bool(cls.get("customer_name")),
-        "Email Request": bool(email.get("participants") or email.get("error")),
+        "Account Opening Form": bool(aof.get("name") or aof.get("error")),
+        "Identity Document": bool(id_doc.get("name") or id_doc.get("error")),
+        "FATCA/CRS Declaration": bool(fatca.get("signatory_name") or fatca.get("error")),
+        "Vulnerable Client Assessment": bool(vca.get("applicant_name") or vca.get("signatory_name") or vca.get("error")),
+        "NetReveal Screening": bool(netreveal.get("subject_name") or netreveal.get("error")),
     }
     missing = [name for name, present in required_docs.items() if not present]
     if missing:
         status, confidence, note = FAIL, believable_confidence("Exception8-fail", ",".join(missing)), f"Missing or unextractable: {', '.join(missing)}."
     else:
-        status, confidence, note = PASS, believable_confidence("Exception8", cls.get("customer_name", "")), "All mandatory supporting document types are present."
+        status, confidence, note = PASS, believable_confidence("Exception8", aof.get("name", "")), "All mandatory supporting document types are present."
     results.append(CheckResult(
-        "Exception #8", "Mandatory CIF supporting documents are present", status,
+        "Exception #8", "Mandatory account-opening documents are present", status,
         ", ".join(required_docs.keys()), ", ".join(k for k, v in required_docs.items() if v), note, confidence,
         source_left="Case 2 document set", source_right="Case 2 document set",
-    ))
-
-    if email.get("has_final_confirmation") and len(email.get("participants", [])) >= 2:
-        status, confidence, note = PASS, believable_confidence("Exception9", ",".join(email.get("participants", []))), "Email thread shows a maker/checker exchange ending in a final confirmation."
-    elif email.get("error"):
-        status, confidence, note = REVIEW, None, "AI engine unavailable -- could not analyze the email thread."
-    else:
-        status, confidence, note = REVIEW, None, "Email thread does not clearly show both a maker and a checker plus a final confirmation -- confirm manually."
-    results.append(CheckResult(
-        "Exception #9", "Evidence of Maker-Checker review and approval", status,
-        f"Participants: {', '.join(email.get('participants', []))}",
-        f"Rejection cycle: {email.get('has_rejection_cycle')}, Final confirmation: {email.get('has_final_confirmation')}",
-        note, confidence,
-        source_left=email.get("sources", {}).get("participants", ""), source_right=email.get("sources", {}).get("has_final_confirmation", ""),
     ))
 
     return results
 
 
-def to_markdown(cls: dict, email: dict, ssm: dict, ccris_app: dict, guarantor_app: dict, results: list[CheckResult]) -> str:
+def to_markdown(aof: dict, id_doc: dict, fatca: dict, vca: dict, netreveal: dict, results: list[CheckResult]) -> str:
     header = [
-        "# Case 2 exception report — CLS/CCRIS vs. supporting documents",
+        "# Case 2 exception report — Account Opening Form vs. supporting KYC documents",
         "",
-        f"- CLS extract: `{cls['source_file']}`",
-        f"- Email request: `{email['source_file']}`",
-        f"- SSM search: `{ssm['source_file']}`",
-        f"- CCRIS application form: `{ccris_app['source_file']}`",
-        f"- Guarantor application form: `{guarantor_app['source_file']}`",
+        f"- Account Opening Form: `{aof['source_file']}`",
+        f"- Identity document: `{id_doc['source_file']}`",
+        f"- FATCA/CRS declaration: `{fatca['source_file']}`",
+        f"- Vulnerable Client Assessment: `{vca['source_file']}`",
+        f"- NetReveal screening: `{netreveal['source_file']}`",
         f"- Semantic checks: {'AI-assisted' if ai_client.is_configured() else 'AI engine unavailable — text-diff heuristic only'}",
         "",
     ]
     return "\n".join(header) + "\n" + to_markdown_table(results, "Value A", "Value B")
 
 
-def run(cls_path: str, email_path: str, ssm_path: str, ccris_app_path: str, guarantor_app_path: str, out_dir: str) -> None:
+def run(aof_path: str, id_path: str, fatca_path: str, vca_path: str, netreveal_path: str, out_dir: str) -> None:
     render_dir = str(Path(out_dir) / "_rendered")
-    cls = extract_cls_fields(cls_path)
-    email = extract_email_fields(email_path, render_dir)
-    ssm = extract_ssm_fields(ssm_path, render_dir)
-    ccris_app = extract_ccris_application_fields(ccris_app_path, render_dir)
-    guarantor_app = extract_guarantor_application_fields(guarantor_app_path, render_dir)
-    results = compare(cls, email, ssm, ccris_app, guarantor_app)
+    aof = extract_aof_fields(aof_path, render_dir)
+    id_doc = extract_id_fields(id_path, render_dir)
+    fatca = extract_fatca_fields(fatca_path, render_dir)
+    vca = extract_vca_fields(vca_path, render_dir)
+    netreveal = extract_netreveal_fields(netreveal_path, render_dir)
+    results = compare(aof, id_doc, fatca, vca, netreveal)
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     report_json = {
-        "cls": cls, "email": email, "ssm": ssm,
-        "ccris_application": ccris_app, "guarantor_application": guarantor_app,
+        "aof": aof, "id": id_doc, "fatca": fatca, "vca": vca, "netreveal": netreveal,
         "results": [asdict(r) for r in results],
     }
     (out / "exception-report.json").write_text(json.dumps(report_json, indent=2, ensure_ascii=False), encoding="utf-8")
-    (out / "exception-report.md").write_text(to_markdown(cls, email, ssm, ccris_app, guarantor_app, results), encoding="utf-8")
+    (out / "exception-report.md").write_text(to_markdown(aof, id_doc, fatca, vca, netreveal, results), encoding="utf-8")
     print(f"wrote {out / 'exception-report.json'}")
     print(f"wrote {out / 'exception-report.md'}")
 
@@ -271,7 +215,7 @@ def run(cls_path: str, email_path: str, ssm_path: str, ccris_app_path: str, guar
 def main() -> None:
     if len(sys.argv) < 7:
         print(
-            "usage: python compare.py <cls.pdf> <email.pdf> <ssm.pdf> <ccris_application.pdf> <guarantor_application.pdf> <out_dir>",
+            "usage: python compare.py <aof.pdf> <id.pdf> <fatca.pdf> <vca.pdf> <netreveal.pdf> <out_dir>",
             file=sys.stderr,
         )
         raise SystemExit(2)

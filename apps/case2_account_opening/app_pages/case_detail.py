@@ -11,16 +11,16 @@ import shared_pages
 from compare import compare, to_markdown
 from extract_fields import (
     classify_document,
-    extract_ccris_application_fields,
-    extract_cls_fields,
-    extract_email_fields,
-    extract_guarantor_application_fields,
-    extract_ssm_fields,
+    extract_aof_fields,
+    extract_fatca_fields,
+    extract_id_fields,
+    extract_netreveal_fields,
+    extract_vca_fields,
 )
 
 DOC_LABELS = {
-    "cls": "CLS Extract", "email": "Email Request", "ssm": "SSM Search",
-    "ccris_app": "CCRIS Application Form", "guarantor_app": "Guarantor Application Form",
+    "aof": "Account Opening Form", "id": "Identity Document", "fatca": "FATCA/CRS Declaration",
+    "vca": "Vulnerable Client Assessment", "netreveal": "AML Screening (NetReveal)",
 }
 CATEGORY_LABELS = {**DOC_LABELS, "unknown": "Unclassified"}
 
@@ -61,13 +61,18 @@ if case_id:
     )
     st.stop()
 
-st.caption("New case · upload the five CIF-creation documents in any order — the system classifies each one automatically.")
+st.caption(
+    "New case · upload the five account-opening documents (Account Opening Form, Identity "
+    "Document, FATCA/CRS Declaration, Vulnerable Client Assessment, AML Screening) in any "
+    "order — the system classifies each one automatically."
+)
 if st.button("← Back to cases", type="tertiary"):
     st.switch_page("app_pages/cases.py")
 
 paths = {}
 uploads = st.file_uploader(
-    "Upload documents (CLS Extract, Email Request, SSM Search, CCRIS Application Form, Guarantor Application Form)",
+    "Upload documents (Account Opening Form, Identity Document, FATCA/CRS Declaration, "
+    "Vulnerable Client Assessment, AML Screening)",
     type=["pdf"],
     accept_multiple_files=True,
 )
@@ -135,23 +140,23 @@ if st.button("Run control testing", icon=":material/play_arrow:", type="primary"
     documents = [{"label": DOC_LABELS[key], "filename": Path(p).name} for key, p in paths.items()]
     with st.spinner("Extracting fields and reconciling..."):
         try:
-            cls = extract_cls_fields(paths["cls"])
-            email = extract_email_fields(paths["email"], render_dir)
-            ssm = extract_ssm_fields(paths["ssm"], render_dir)
-            ccris_app = extract_ccris_application_fields(paths["ccris_app"], render_dir)
-            guarantor_app = extract_guarantor_application_fields(paths["guarantor_app"], render_dir)
-            results = compare(cls, email, ssm, ccris_app, guarantor_app)
+            aof = extract_aof_fields(paths["aof"], render_dir)
+            id_doc = extract_id_fields(paths["id"], render_dir)
+            fatca = extract_fatca_fields(paths["fatca"], render_dir)
+            vca = extract_vca_fields(paths["vca"], render_dir)
+            netreveal = extract_netreveal_fields(paths["netreveal"], render_dir)
+            results = compare(aof, id_doc, fatca, vca, netreveal)
         except Exception as exc:
             error_case_id = case_store.save_error_case("case2", documents, "", str(exc))
             case_store.store_documents(error_case_id, list(paths.values()))
             st.error(f"Extraction/comparison failed: {exc}. Logged as {error_case_id} for follow-up.")
             st.stop()
-    customer_display_name = cls.get("customer_name", "") or "Unknown Customer"
-    id_name = case_store.combine_document_names(cls.get("customer_name", ""), ssm.get("name", ""))
+    customer_display_name = aof.get("name", "") or "Unknown Customer"
+    id_name = case_store.combine_document_names(aof.get("name", ""), id_doc.get("name", ""))
     with st.spinner("Generating remarks..."):
         remarks = ai_client.generate_case_remarks(results, f"Case 2 (Accounts) — {customer_display_name}")
     elapsed = time.time() - started
-    markdown_report = to_markdown(cls, email, ssm, ccris_app, guarantor_app, results)
+    markdown_report = to_markdown(aof, id_doc, fatca, vca, netreveal, results)
     new_case_id = case_store.save_case(
         "case2", documents, results, elapsed, remarks, markdown_report, customer_name=id_name
     )

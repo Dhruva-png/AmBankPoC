@@ -1,15 +1,14 @@
 import shared_pages
 
 EXCEPTIONS = [
-    ("1", "Customer name in CLS differs from Application Form / SSM", "KCT-00001"),
-    ("2", "Company registration number incorrectly keyed in CLS", "KCT-00002"),
-    ("3", "Registered address differs from SSM records", "KCT-00003"),
-    ("4", "Business nature / industry information incorrectly captured", "KCT-00004"),
-    ("5", "Director information differs from Application Form or SSM", "KCT-00005"),
-    ("6", "Guarantor information differs from Guarantor Form", "KCT-00006"),
-    ("7", "CCRIS information does not match CCRIS Form", "KCT-00007"),
-    ("8", "Mandatory CIF supporting documents are missing", "—"),
-    ("9", "CIF approved without sufficient Maker-Checker verification evidence", "—"),
+    ("1", "Applicant name on Account Opening Form differs from Identity Document", "KCT-00001"),
+    ("2", "NRIC on Account Opening Form differs from Identity Document", "KCT-00002"),
+    ("3", "Residential address on Account Opening Form differs from Identity Document", "KCT-00003"),
+    ("4", "FATCA/CRS Declaration not signed by the applicant", "KCT-00004"),
+    ("5", "Vulnerable Client Assessment not signed by the applicant", "KCT-00005"),
+    ("6", "AML/sanctions screening was run against the wrong subject", "KCT-00006"),
+    ("7", "AML/sanctions screening returned an unresolved match", "KCT-00007"),
+    ("8", "Mandatory account-opening documents are missing", "—"),
 ]
 
 shared_pages.render_reports("case2", "Accounts", EXCEPTIONS, "Value A", "Value B")

@@ -104,7 +104,67 @@ rather than a false pass.
 **Known limitations (by design, not yet handled):**
 - Only three customer samples exist; the KCT methodology calls for 2-10 samples
   depending on testing frequency.
-- The original sample set also included four customer folders following a different,
-  "PRS"/internal-verification pattern (numbered system screenshots, "Checked & Verified"
-  cover sheets) rather than the document-reconciliation model this pipeline assumes --
-  deliberately excluded from this build rather than forced into a bad fit.
+
+## Case 2 — Account Opening (PRS / Retirement Scheme sub-flow, implemented)
+
+The original sample set also included four customer folders (Aizan, Jimmy, Zul Fikri,
+Yeoh) following a structurally different pattern: a PRS (Private Retirement Scheme)
+account isn't verified by cross-checking two paper documents -- it's verified by an
+internal bank system (TOMS), whose "Account Inquiry" screens carry blue checkmarks
+against each field once a staff member has confirmed it matches the source paperwork.
+`case_detail.py` exposes this as a second flow ("PRS / Retirement Scheme") behind an
+account-type toggle, since the upload/comparison shape is different from the i-Invest set:
+
+```bash
+python src/case2_account_opening/compare_prs.py \
+  "samples/case-2-account-opening-prs/jimmy-lin-chee-vui/JIMMY LIN CHEE VUI - Checked & Verified.pdf" -- \
+  samples/case-2-account-opening-prs/jimmy-lin-chee-vui/jimmy1.pdf \
+  samples/case-2-account-opening-prs/jimmy-lin-chee-vui/jimmy2.pdf \
+  samples/case-2-account-opening-prs/jimmy-lin-chee-vui/jimmy3.pdf \
+  samples/case-2-account-opening-prs/jimmy-lin-chee-vui/jimmy4.pdf \
+  samples/case-2-account-opening-prs/jimmy-lin-chee-vui/jimmy5.pdf \
+  samples/case-2-account-opening-prs/jimmy-lin-chee-vui/generated
+```
+
+**What it does:**
+1. `classify_document(..., categories=PRS_CATEGORIES)` sorts uploads into `toms_screen`
+   (any TOMS "Account Inquiry" screenshot) or `prs_bundle` (everything else -- a
+   customer's KYC evidence isn't split one-file-per-document-type like the i-Invest set;
+   it may be one combined multi-page scan or spread across a few files).
+2. `extract_toms_fields` merges the applicant's name/NRIC/DOB/address/account number
+   across however many TOMS screens are uploaded (usually 5, each showing different
+   fields). `extract_prs_bundle_fields` scans every page of every bundle file for the
+   same fields plus FATCA/VCA/NetReveal content, wherever it happens to land.
+3. Both extractors are **hybrid text/vision**: the TOMS screens and some bundle pages are
+   computer-generated print-to-PDFs with a real embedded text layer -- reading that text
+   directly is far more reliable than vision/OCR for names, so it's used whenever a page
+   has one (`pdfplumber` extract_text, checked per-page since a bundle mixes typed pages
+   with scanned paper/signature pages that have no text layer at all). Vision is only used
+   as a fallback for pages without a usable text layer.
+4. Even reading real text, the low-thinking-budget model occasionally garbled a name (e.g.
+   read a clean "JIMMY LIN CHEE VUI" back as "SIMMY LIN CHWEE YUN") -- `_text_extract_verified`
+   checks the extracted name is a literal substring of the source text and retries once if
+   not, which fixed this for every TOMS read tested.
+5. `compare_prs.compare` runs the same shape of checks as the i-Invest flow (name/NRIC/
+   address cross-check, FATCA/VCA signed-by-applicant, NetReveal subject-match and
+   screening-is-clear, mandatory-evidence-present exception) but reconciling the evidence
+   bundle against the TOMS system record instead of two paper documents.
+
+Verified live against all four real customer samples in `samples/case-2-account-opening-prs/`.
+Three (Aizan, Zul Fikri, Yeoh) matched cleanly on name/NRIC/address; Jimmy's case
+correctly flagged a genuine address discrepancy (a different unit/phase number between
+the evidence bundle and the TOMS record) instead of a false pass. Yeoh's case correctly
+surfaced a real AML/NetReveal match requiring manual clearance. Two customers' FATCA
+signatory names (Jimmy's, Yeoh's) come back slightly misread from a handwritten signature
+inside a large scanned bundle and are flagged FAIL for a human to confirm against the
+actual page -- an honest "I'm not confident this matches" rather than a silent pass,
+consistent with this project's no-fabricated-data standard, but worth noting as a real
+OCR-difficulty limitation rather than a fixed one.
+
+**Known limitations:**
+- Aizan's evidence bundle has no page with a dedicated FATCA signature block (FATCA is
+  answered inline on the Account Opening Form with no separate signature of its own) --
+  correctly reported as REVIEW rather than guessing.
+- Jimmy's and Zul Fikri's bundles have no NetReveal screening page at all in the sample
+  provided -- correctly reported as REVIEW, not fabricated as clear.
+- Only four PRS-pattern customer samples exist.

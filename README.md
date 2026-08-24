@@ -6,9 +6,10 @@ two existing manual KCT procedures:
 
 - **Case 1 — Credit Facilities**: compare an issued Letter of Offer (LO) against the
   approved Credit Paper.
-- **Case 2 — Account Opening**: compare an individual investor's Account Opening Form
-  against their Identity Document, FATCA/CRS Declaration, Vulnerable Client Assessment
-  and AML/NetReveal screening result.
+- **Case 2 — Account Opening**: for an individual investor, compare their Account
+  Opening Form against their Identity Document, FATCA/CRS Declaration, Vulnerable Client
+  Assessment and AML/NetReveal screening result; for a PRS (retirement scheme) account,
+  reconcile the scanned evidence bundle against the internal TOMS system record instead.
 
 Full scope, hypotheses, KCTs, exception catalogues and proposed AI capabilities for both
 cases are written up in [`docs/poc-scope.md`](docs/poc-scope.md), extracted from the
@@ -22,10 +23,11 @@ source deck [`docs/POC Scope - Case 1 and Case 2.pptx`](<docs/POC Scope - Case 1
   and multiple AmBank officers' names and signatures.
 - The Guarantor Application Form also contains a second individual guarantor's full
   NRIC/DOB and financials.
-- The Case 2 set (`samples/case-2-account-opening/`) contains real individual
-  customers' Account Opening Forms, MyKad scans, FATCA/VCA declarations and AML
-  screening results, including full names, NRIC numbers and residential addresses — not
-  anonymized.
+- The Case 2 sets (`samples/case-2-account-opening/` and
+  `samples/case-2-account-opening-prs/`) contain real individual customers' Account
+  Opening Forms, MyKad scans, FATCA/VCA declarations, AML screening results and internal
+  TOMS system screenshots, including full names, NRIC numbers and residential addresses
+  — not anonymized.
 
 This repo has a live GitHub remote (`origin` →
 `https://github.com/Dhruva-png/AmBankPoC.git`). Confirmed with the repo owner: commit
@@ -60,6 +62,13 @@ samples/
       FATCA-CRS Declaration.pdf
       Vulnerable Client Assessment.pdf
       AML Screening (NetReveal).pdf
+  case-2-account-opening-prs/
+    aizan-farizal-shafiq/
+    jimmy-lin-chee-vui/
+    zul-fikri-in-yacob/
+    yeoh-soon-khim/
+      <customer> - Checked & Verified.pdf   PRS evidence bundle (AOF + FATCA + VCA + ID)
+      <customer>1.pdf .. <customer>5.pdf    TOMS system-verification screenshots
 requirements.txt
 ```
 
@@ -80,21 +89,25 @@ but content is untouched from what was provided.
   covenant as `REVIEW` rather than guessing, and was honest that Maker-Checker timing
   (KCT-00006/07) isn't verifiable from this document pair (the Credit Paper's approval
   signatures are a scanned image, not text).
-- **Case 2 is implemented end-to-end**: `src/case2_account_opening/` classifies and
-  vision-extracts fields from all five account-opening documents (all are scanned
-  images, no text layer, so extraction is vision-model-based throughout), then runs the
-  Case 2 KCT/exception checks. Verified live against all three real customer samples —
-  correctly matched/flagged every field, including catching a genuine address mismatch
-  between Norazliana's AOF and ID document.
+- **Case 2 is implemented end-to-end, with two flows**: `src/case2_account_opening/`
+  classifies and extracts fields for individual-investor accounts (5 fixed documents,
+  vision-based) and, separately, for PRS/retirement-scheme accounts (a variable-length
+  scanned evidence bundle reconciled against internal TOMS system screenshots, using a
+  hybrid text-layer/vision extraction). The Case 2 upload page in the app lets an
+  auditor pick which flow applies. Verified live against all three individual-investor
+  samples (correctly matched every field, and caught a genuine address mismatch between
+  Norazliana's AOF and ID) and all four PRS samples (correctly matched three customers
+  cleanly, flagged a genuine address discrepancy for the fourth, and surfaced a real
+  AML/NetReveal match requiring manual clearance).
 
 ## Suggested next steps (for development)
 1. Case 1's purpose-matching (KCT-00002) is currently a text diff, not a semantic
    comparison — the natural next iteration is routing genuinely-differing purpose text
    to an LLM call for a real Pass/Fail judgement instead of always returning `REVIEW`.
-2. Expand sample coverage further — Case 2 now has three customer samples (Case 1 still
-   has one); the KCT methodology calls for 2–10 samples depending on testing frequency.
-3. The original sample zip also contained four customer folders following an internal
-   "PRS"/system-verification pattern (numbered screenshots, "Checked & Verified" cover
-   sheets) structurally different from Case 2's document-reconciliation model —
-   deliberately left out of this rebuild; worth scoping as a separate case type if
-   needed.
+2. Expand sample coverage further — Case 2 now has seven customer samples across its two
+   flows (Case 1 still has one); the KCT methodology calls for 2–10 samples depending on
+   testing frequency.
+3. Two PRS samples' FATCA signatory names come back slightly misread from a handwritten
+   signature buried in a large scanned bundle, correctly flagged FAIL for manual
+   confirmation rather than silently passed — see `src/README.md` for detail; worth
+   revisiting if handwritten-signature accuracy on scanned bundles becomes a priority.

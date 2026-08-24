@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -16,50 +15,8 @@ from extract_fields import (  # noqa: E402
     extract_netreveal_fields,
 )
 from check_result import CheckResult, PASS, FAIL, REVIEW, NA, believable_confidence, to_markdown_table  # noqa: E402
+from match_helpers import norm as _norm, digits as _digits, ai_match as _ai_match  # noqa: E402
 import ai_client  # noqa: E402
-
-
-def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", (text or "")).strip().lower()
-
-
-def _digits(text: str) -> str:
-    return re.sub(r"\D", "", text or "")
-
-
-_MATCH_PROMPT = """You are an internal-audit KCT tester at a bank, cross-checking an individual customer's data captured in two different sources during account opening.
-
-Field being checked: {field}
-
-Value in source A ({source_a}):
-\"\"\"{value_a}\"\"\"
-
-Value in source B ({source_b}):
-\"\"\"{value_b}\"\"\"
-
-{context}
-
-Decide whether these values refer to the same thing (allowing for formatting, abbreviation, or wording differences that a human reviewer would accept as consistent), or whether this is a genuine discrepancy that should be raised as a KCT exception.
-
-Return strict JSON only:
-{{"match": true or false, "confidence": integer 0-100, "reasoning": "one or two sentences"}}"""
-
-
-def _ai_match(field: str, source_a: str, value_a: str, source_b: str, value_b: str, context: str = "") -> tuple[str, float | None, str]:
-    if not value_a or not value_b:
-        return REVIEW, None, f"Could not extract '{field}' from one or both sources."
-    if _norm(value_a) == _norm(value_b):
-        return PASS, believable_confidence(field, value_a, value_b), "Values are identical."
-    if not ai_client.is_configured():
-        return REVIEW, None, f"'{field}' differs between sources and the AI engine is unavailable to auto-judge this."
-    try:
-        result = ai_client.chat_json(
-            _MATCH_PROMPT.format(field=field, source_a=source_a, value_a=value_a, source_b=source_b, value_b=value_b, context=context)
-        )
-        status = PASS if result.get("match") else FAIL
-        return status, float(result.get("confidence", 50)), result.get("reasoning", "")
-    except Exception:
-        return REVIEW, None, "AI engine call failed; confirm manually."
 
 
 def _signed_check(kct: str, check_label: str, form_label: str, form: dict, applicant_name: str) -> CheckResult:

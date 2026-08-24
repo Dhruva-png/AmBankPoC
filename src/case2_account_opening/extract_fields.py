@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -8,7 +9,25 @@ from extract_text import render_pdf_first_page, render_pdf_pages_to_images  # no
 from classify import classify_image  # noqa: E402
 import ai_client  # noqa: E402
 
+MIN_TEXT_LAYER_CHARS = 40
+
+
+def _page_texts(path: str) -> list[str]:
+    """Per-page extracted text, "" for a page with no usable text layer (e.g. a scanned
+    image page). PRS evidence bundles mix computer-generated pages (real text layer,
+    reading it directly is both more accurate and cheaper than vision) with scanned paper
+    pages (image only, vision is the only option) within the same file."""
+    import pdfplumber
+
+    with pdfplumber.open(path) as pdf:
+        return [(page.extract_text() or "").strip() for page in pdf.pages]
+
 VISION_SCALE = 1.3
+# TOMS screenshots and PRS bundle scans are lower-quality/lower-DPI sources than the
+# i-Invest scanned forms -- rendered at the same 1.3 scale, names get misread (e.g. a
+# clean "JIMMY" read back as "SIMMY"). A higher render scale gives the vision model more
+# pixels per character to work with.
+PRS_VISION_SCALE = 2.2
 
 CATEGORIES = {
     "aof": (
@@ -37,22 +56,64 @@ CATEGORIES = {
     ),
 }
 
+PRS_CATEGORIES = {
+    "toms_screen": (
+        "Screenshot of an internal bank system (TOMS) titled 'Account Inquiry' or similar, "
+        "showing PRS account fields (Master Account Details, Personal Details, Addresses, "
+        "Edit CIF Critical Details, Opening New Account) with blue checkmarks next to "
+        "verified fields."
+    ),
+    "prs_bundle": (
+        "Any other scanned document related to opening a PRS (Private Retirement Scheme) "
+        "account that is NOT a TOMS system screenshot -- e.g. a PPA/PRS transfer form, "
+        "PRS Account Opening Form, MyKad/IC copy, FATCA/CRS Self-Certification, Vulnerable "
+        "Client Assessment, terms and conditions, or a checklist/cover sheet. This is the "
+        "default category for anything that isn't clearly a TOMS screenshot."
+    ),
+}
+
 
 def _render_for_vision(path: str, render_dir: str) -> list[str]:
     return render_pdf_pages_to_images(path, render_dir, scale=VISION_SCALE)
 
 
-def classify_document(path: str, render_dir: str) -> str:
+def classify_document(path: str, render_dir: str, categories: dict[str, str] = CATEGORIES) -> str:
     try:
         page_image = render_pdf_first_page(path, render_dir, scale=VISION_SCALE)
     except Exception:
         return "unknown"
-    return classify_image(page_image, CATEGORIES)
+    return classify_image(page_image, categories)
 
 
 def _vision_extract(image_path: str, prompt: str, max_tokens: int = 1200) -> dict:
     b64, mime = ai_client.image_file_to_b64(image_path)
     return ai_client.vision_json(prompt, b64, mime, max_tokens=max_tokens)
+
+
+def _text_extract(text: str, prompt_template: str, max_tokens: int = 500) -> dict:
+    return ai_client.chat_json(prompt_template.format(text=text), max_tokens=max_tokens)
+
+
+def _in_source(value: str, source_text: str) -> bool:
+    """True if `value` literally appears in `source_text` (whitespace/case-insensitive).
+    Even reading a real embedded text layer, the model occasionally garbles a name under
+    the low thinking-budget config -- this catches that against the one thing that's
+    actually authoritative here (the text extracted straight from the PDF, no OCR
+    involved), so a bad read can be retried instead of silently trusted."""
+    if not value:
+        return False
+    norm = lambda s: re.sub(r"\s+", "", s).upper()
+    return norm(value) in norm(source_text)
+
+
+def _text_extract_verified(text: str, prompt_template: str, field: str, max_tokens: int = 500) -> dict:
+    """Like _text_extract, but retries once if `field` in the result doesn't literally
+    appear in the source text -- the low-thinking-budget model occasionally garbles a name
+    even when the exact text is right there."""
+    data = _text_extract(text, prompt_template, max_tokens=max_tokens)
+    if data.get(field) and not _in_source(data[field], text):
+        data = _text_extract(text, prompt_template, max_tokens=max_tokens)
+    return data
 
 
 _AOF_PROMPT = """This is page 1 of an i-Invest Account Opening Form (individual). Section A "PARTICULARS OF PRINCIPAL APPLICANT" has fields written one character per box (like a cheque) -- read every box left to right and concatenate into a single value; do not stop at the first few boxes or drop leading/trailing characters.
@@ -204,6 +265,162 @@ _NETREVEAL_PROMPT = """This is an AmBank NetReveal AML/sanctions screening print
 
 Return strict JSON only, using "" or false for anything not visible:
 {"subject_name": "", "subject_identification_number": "", "has_matches": false}"""
+
+
+_PRS_BUNDLE_PROMPT = """This is ONE PAGE from a scanned PRS (Private Retirement Scheme) account-opening evidence bundle. Depending on which page this is, it may show: a PRS Account Opening Form (applicant particulars and/or its own declaration/signature section), a MyKad/IC copy, a FATCA/CRS Self-Certification questionnaire (which may be a standalone form with its own signature, OR just a set of Yes/No questions embedded in the Account Opening Form with no signature of its own), a Vulnerable Client Assessment (whose Acknowledgement section, often labelled "(D)", has a table with the applicant's printed Name and Date), or an AML NetReveal screening printout -- or none of these (e.g. a terms-and-conditions or blank page).
+
+Look ONLY at this page and extract whatever of the following is visible on it. Use "" for a text field not visible on this page, and null (not false) for a yes/no field not visible on this page -- do not guess or carry over information from other pages you have not seen.
+
+Read every name character by character exactly as printed -- do not substitute a similar-looking letter or "autocorrect" toward a more common name/spelling. If the same name appears more than once on this page, cross-check your reading against every occurrence before answering.
+
+- fatca_signatory_name / fatca_signature_date: ONLY if this page is a FATCA/CRS form that has ITS OWN dedicated signature block (separate from the general application signature).
+- vca_signatory_name / vca_signature_date: the applicant's printed name and date from the Vulnerable Client Assessment's Acknowledgement/signature table.
+- application_signatory_name / application_signature_date: the applicant's printed name and date from the Account Opening Form / PRS application's own general declaration or signature section (used when one signature covers multiple declarations together, e.g. "General Declaration; FATCA & CRS Declaration").
+
+Return strict JSON only:
+{"applicant_name": "", "applicant_nric": "", "date_of_birth": "", "residential_address": "", "employer": "", "is_us_person": null, "fatca_signatory_name": "", "fatca_signature_date": "", "is_vulnerable_client": null, "vca_signatory_name": "", "vca_signature_date": "", "application_signatory_name": "", "application_signature_date": "", "netreveal_subject_name": "", "netreveal_subject_id": "", "netreveal_has_matches": null}"""
+
+_PRS_BUNDLE_PROMPT_TEXT = """Below is the extracted text from ONE PAGE of a PRS (Private Retirement Scheme) account-opening evidence bundle. Depending on which page this is, it may show: a PRS Account Opening Form (applicant particulars and/or its own declaration/signature section), a FATCA/CRS Self-Certification questionnaire (which may be a standalone form with its own signature, OR just a set of Yes/No questions embedded in the Account Opening Form with no signature of its own), a Vulnerable Client Assessment (whose Acknowledgement section, often labelled "(D)", has a table with the applicant's printed Name and Date), or an AML NetReveal screening printout -- or none of these (e.g. a terms-and-conditions or blank page).
+
+Page text:
+\"\"\"{text}\"\"\"
+
+Look ONLY at this page's text and extract whatever of the following is present. Use "" for a text field not present on this page, and null (not false) for a yes/no field not present on this page -- do not guess or carry over information from other pages you have not seen.
+
+- fatca_signatory_name / fatca_signature_date: ONLY if this page is a FATCA/CRS form that has ITS OWN dedicated signature block (separate from the general application signature).
+- vca_signatory_name / vca_signature_date: the applicant's printed name and date from the Vulnerable Client Assessment's Acknowledgement/signature table.
+- application_signatory_name / application_signature_date: the applicant's printed name and date from the Account Opening Form / PRS application's own general declaration or signature section (used when one signature covers multiple declarations together, e.g. "General Declaration; FATCA & CRS Declaration").
+
+Return strict JSON only:
+{{"applicant_name": "", "applicant_nric": "", "date_of_birth": "", "residential_address": "", "employer": "", "is_us_person": null, "fatca_signatory_name": "", "fatca_signature_date": "", "is_vulnerable_client": null, "vca_signatory_name": "", "vca_signature_date": "", "application_signatory_name": "", "application_signature_date": "", "netreveal_subject_name": "", "netreveal_subject_id": "", "netreveal_has_matches": null}}"""
+
+_PRS_BUNDLE_TEXT_FIELDS = [
+    "applicant_name", "applicant_nric", "date_of_birth", "residential_address", "employer",
+    "fatca_signatory_name", "fatca_signature_date", "vca_signatory_name", "vca_signature_date",
+    "application_signatory_name", "application_signature_date",
+    "netreveal_subject_name", "netreveal_subject_id",
+]
+
+
+def extract_prs_bundle_fields(paths: list[str], render_dir: str) -> dict:
+    """paths: one or more scanned PDFs making up a customer's PRS evidence (AOF + ID +
+    FATCA + VCA + sometimes NetReveal). Unlike the i-Invest set, these aren't split into
+    one file per document type -- a customer's evidence may be one combined multi-page
+    scan, or spread across a few files (a transfer form, a checklist, a "verified" cover)
+    -- so every page of every file is scanned and merged, whichever page carries which
+    section varies from customer to customer."""
+    if not ai_client.is_configured():
+        return {"source_file": ", ".join(Path(p).name for p in paths), "error": "AI engine not configured", "sources": {}}
+    combined: dict = {}
+    sources: dict = {}
+    netreveal_found = False
+    netreveal_has_matches = False
+    for path in paths:
+        doc_name = Path(path).name
+        page_texts = _page_texts(path)
+        images: list[str] | None = None
+        for idx, page_text in enumerate(page_texts):
+            # A computer-generated page (form printout, transfer request) has a real text
+            # layer -- reading it directly is both more accurate and cheaper than vision.
+            # A scanned paper page (MyKad copy, wet signature) has no usable text layer,
+            # so it's rendered to an image and read via vision instead.
+            if len(page_text) >= MIN_TEXT_LAYER_CHARS:
+                data = _text_extract_verified(page_text, _PRS_BUNDLE_PROMPT_TEXT, "applicant_name", max_tokens=500)
+                source_tag = f"{doc_name} (page {idx + 1}, text)"
+            else:
+                if images is None:
+                    images = render_pdf_pages_to_images(path, render_dir, scale=PRS_VISION_SCALE)
+                data = _vision_extract(images[idx], _PRS_BUNDLE_PROMPT, max_tokens=500)
+                source_tag = f"{doc_name} (page {idx + 1}, AI vision)"
+            for key in _PRS_BUNDLE_TEXT_FIELDS:
+                value = data.get(key)
+                if value and key not in combined:
+                    combined[key] = value
+                    sources[key] = source_tag
+            if data.get("is_us_person") is not None and "is_us_person" not in combined:
+                combined["is_us_person"] = bool(data["is_us_person"])
+            if data.get("is_vulnerable_client") is not None and "is_vulnerable_client" not in combined:
+                combined["is_vulnerable_client"] = bool(data["is_vulnerable_client"])
+            if data.get("netreveal_subject_name") or data.get("netreveal_has_matches") is not None:
+                netreveal_found = True
+                netreveal_has_matches = netreveal_has_matches or bool(data.get("netreveal_has_matches"))
+
+    return {
+        "source_file": ", ".join(Path(p).name for p in paths),
+        "name": combined.get("applicant_name", ""),
+        "nric": combined.get("applicant_nric", ""),
+        "date_of_birth": combined.get("date_of_birth", ""),
+        "residential_address": combined.get("residential_address", ""),
+        "employer": combined.get("employer", ""),
+        "is_us_person": bool(combined.get("is_us_person", False)),
+        "fatca_signatory_name": combined.get("fatca_signatory_name", ""),
+        "fatca_signature_date": combined.get("fatca_signature_date", ""),
+        "is_vulnerable_client": bool(combined.get("is_vulnerable_client", False)),
+        "vca_signatory_name": combined.get("vca_signatory_name", ""),
+        "vca_signature_date": combined.get("vca_signature_date", ""),
+        "application_signatory_name": combined.get("application_signatory_name", ""),
+        "application_signature_date": combined.get("application_signature_date", ""),
+        "netreveal_subject_name": combined.get("netreveal_subject_name", ""),
+        "netreveal_subject_id": combined.get("netreveal_subject_id", ""),
+        "netreveal_found": netreveal_found,
+        "netreveal_has_matches": netreveal_has_matches,
+        "sources": sources,
+    }
+
+
+_TOMS_SCREEN_PROMPT = """This is a screenshot of one screen from an internal bank system (TOMS) used to verify a PRS (Private Retirement Scheme) account during account opening -- one of several screens such as Account Inquiry (Master Account Details, Personal Details, List Of Addresses), Edit CIF Critical Details, or Opening New Account. Blue checkmarks next to a field mean it has been verified against source documents -- extract the field's value regardless of whether it carries a checkmark.
+
+Extract whatever of the following is visible on THIS screen. Use "" for anything not visible on this screen. Read the name character by character exactly as printed -- do not substitute a similar-looking letter or "autocorrect" toward a more common name/spelling; if the name appears more than once on this screen, cross-check your reading against every occurrence before answering.
+
+Return strict JSON only:
+{"name": "", "nric": "", "date_of_birth": "", "address": "", "account_reference_no": ""}"""
+
+_TOMS_SCREEN_PROMPT_TEXT = """Below is the extracted text from one screen of an internal bank system (TOMS) used to verify a PRS (Private Retirement Scheme) account during account opening -- one of several screens such as Account Inquiry (Master Account Details, Personal Details, List Of Addresses), Edit CIF Critical Details, or Opening New Account.
+
+Screen text:
+\"\"\"{text}\"\"\"
+
+Extract whatever of the following is present in this text. Use "" for anything not present.
+
+Return strict JSON only:
+{{"name": "", "nric": "", "date_of_birth": "", "address": "", "account_reference_no": ""}}"""
+
+
+def extract_toms_fields(paths: list[str], render_dir: str) -> dict:
+    """paths: the (usually 5) numbered TOMS system-verification screenshots for one
+    customer, in any order -- merge whichever screen shows each field. These are
+    computer-generated print-to-PDF screenshots with a real text layer, so the embedded
+    text is read directly rather than via vision/OCR wherever it's available -- far more
+    reliable for names than reading pixels, and cheaper."""
+    if not ai_client.is_configured():
+        return {"source_file": ", ".join(Path(p).name for p in paths), "error": "AI engine not configured", "sources": {}}
+    combined: dict = {}
+    sources: dict = {}
+    for path in paths:
+        doc_name = Path(path).name
+        page_texts = _page_texts(path)
+        page_text = page_texts[0] if page_texts else ""
+        if len(page_text) >= MIN_TEXT_LAYER_CHARS:
+            data = _text_extract_verified(page_text, _TOMS_SCREEN_PROMPT_TEXT, "name", max_tokens=400)
+            source_suffix = "text"
+        else:
+            page = render_pdf_first_page(path, render_dir, scale=PRS_VISION_SCALE)
+            data = _vision_extract(page, _TOMS_SCREEN_PROMPT, max_tokens=400)
+            source_suffix = "AI vision"
+        for key in ("name", "nric", "date_of_birth", "address", "account_reference_no"):
+            value = data.get(key)
+            if value and key not in combined:
+                combined[key] = value
+                sources[key] = f"{doc_name} ({source_suffix})"
+    return {
+        "source_file": ", ".join(Path(p).name for p in paths),
+        "name": combined.get("name", ""),
+        "nric": combined.get("nric", ""),
+        "date_of_birth": combined.get("date_of_birth", ""),
+        "address": combined.get("address", ""),
+        "account_reference_no": combined.get("account_reference_no", ""),
+        "sources": sources,
+    }
 
 
 def extract_netreveal_fields(path: str, render_dir: str) -> dict:

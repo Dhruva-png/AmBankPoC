@@ -138,6 +138,11 @@ SHORT_CHECK_LABELS = {
     "NetReveal screening subject matches applicant": "Screening subject match",
     "AML/sanctions screening is clear": "AML screening",
     "Mandatory account-opening documents are present": "Required documents",
+    # Case 2: Account Opening (PRS)
+    "Applicant name in evidence bundle matches TOMS system record": "Applicant name",
+    "NRIC in evidence bundle matches TOMS system record": "NRIC",
+    "Residential address in evidence bundle matches TOMS system record": "Residential address",
+    "Mandatory PRS account-opening evidence is present": "Required documents",
 }
 
 

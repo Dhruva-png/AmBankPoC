@@ -72,6 +72,22 @@ PRS_CATEGORIES = {
     ),
 }
 
+CORP_CATEGORIES = {
+    "toms_screen": (
+        "Screenshot of an internal bank system (TOMS) titled 'Account Inquiry' or similar, "
+        "showing a CORPORATE account (Category: CORPORATE) with a company name in the Name "
+        "field and blue checkmarks next to verified fields."
+    ),
+    "corp_bundle": (
+        "Any other scanned document related to opening a corporate account -- e.g. a "
+        "corporate Account Opening Form, a New Corporate Onboarding Checklist (AmInvest "
+        "FMD_CODDC form with Sections A-F and appendices for shareholding/beneficial "
+        "owners), an SSM company search, constitutional documents, or an AML/NetReveal "
+        "screening printout for the company or one of its individuals. This is the default "
+        "category for anything that isn't clearly a TOMS screenshot."
+    ),
+}
+
 
 def _render_for_vision(path: str, render_dir: str) -> list[str]:
     return render_pdf_pages_to_images(path, render_dir, scale=VISION_SCALE)
@@ -442,4 +458,156 @@ def extract_netreveal_fields(path: str, render_dir: str) -> dict:
         "subject_identification_number": combined.get("subject_identification_number", ""),
         "has_matches": has_matches,
         "sources": {k: doc_source for k in ("subject_name", "subject_identification_number", "has_matches")},
+    }
+
+
+_CORP_BUNDLE_PROMPT = """This is ONE PAGE from a scanned corporate account-opening evidence bundle. Depending on which page this is, it may show: a corporate Account Opening Form (company name, registration number), a New Corporate Onboarding Checklist's Section D "Preparer, Checker and Approver's Signature" table (three roles: Prepared by / Checked by / Approved by, each with a printed Name and Date), that checklist's Appendix B "BO Data points" listing named Beneficial Owner(s) (Full Name, NRIC/Passport Number), or an AML/NetReveal screening printout for the company or one of its individuals -- or none of these (e.g. a blank/cover page).
+
+Look ONLY at this page and extract whatever of the following is present. Use "" for a text field not present on this page, and null (not false) for a yes/no field not present on this page -- do not guess or carry over information from other pages you have not seen. Read every name and number character by character exactly as printed.
+
+- company_name / registration_no: from the Account Opening Form's "Registered Name" / "Business Registration No." fields.
+- prepared_by_name / prepared_by_date, checked_by_name / checked_by_date, approved_by_name / approved_by_date: ONLY from a Section D "Preparer, Checker and Approver's Signature" table -- the printed Name and Date for each of the three roles shown on that specific page.
+- bo1_name / bo1_nric, bo2_name / bo2_nric: ONLY from an Appendix B "BO Data points" / "Beneficial Owner 1" / "Beneficial Owner 2" table -- the Full Name and NRIC/Passport Number for each.
+- netreveal_subject_name / netreveal_has_matches: if this page is an AML/NetReveal screening result for any subject (the company or an individual), that subject's name, and whether the page shows any match/alert/hit for them (true) or a clean/no-record result (false).
+
+Return strict JSON only:
+{"company_name": "", "registration_no": "", "prepared_by_name": "", "prepared_by_date": "", "checked_by_name": "", "checked_by_date": "", "approved_by_name": "", "approved_by_date": "", "bo1_name": "", "bo1_nric": "", "bo2_name": "", "bo2_nric": "", "netreveal_subject_name": "", "netreveal_has_matches": null}"""
+
+_CORP_BUNDLE_PROMPT_TEXT = """Below is the extracted text from ONE PAGE of a corporate account-opening evidence bundle. Depending on which page this is, it may show: a corporate Account Opening Form (company name, registration number), a New Corporate Onboarding Checklist's Section D "Preparer, Checker and Approver's Signature" table, that checklist's Appendix B "BO Data points" listing named Beneficial Owner(s), or an AML/NetReveal screening printout for the company or one of its individuals.
+
+Page text:
+\"\"\"{text}\"\"\"
+
+Look ONLY at this page's text and extract whatever of the following is present. Use "" for a text field not present, and null (not false) for a yes/no field not present -- do not guess or carry over information from other pages you have not seen.
+
+- company_name / registration_no: from the Account Opening Form's "Registered Name" / "Business Registration No." fields.
+- prepared_by_name / prepared_by_date, checked_by_name / checked_by_date, approved_by_name / approved_by_date: ONLY from a Section D "Preparer, Checker and Approver's Signature" table.
+- bo1_name / bo1_nric, bo2_name / bo2_nric: ONLY from an Appendix B "BO Data points" / "Beneficial Owner 1" / "Beneficial Owner 2" table.
+- netreveal_subject_name / netreveal_has_matches: if this page is an AML/NetReveal screening result for any subject, that subject's name, and whether the page shows any match/alert/hit for them (true) or a clean/no-record result (false).
+
+Return strict JSON only:
+{{"company_name": "", "registration_no": "", "prepared_by_name": "", "prepared_by_date": "", "checked_by_name": "", "checked_by_date": "", "approved_by_name": "", "approved_by_date": "", "bo1_name": "", "bo1_nric": "", "bo2_name": "", "bo2_nric": "", "netreveal_subject_name": "", "netreveal_has_matches": null}}"""
+
+_CORP_BUNDLE_TEXT_FIELDS = [
+    "company_name", "registration_no", "prepared_by_name", "prepared_by_date",
+    "checked_by_name", "checked_by_date", "approved_by_name", "approved_by_date",
+    "bo1_name", "bo1_nric", "bo2_name", "bo2_nric",
+]
+
+
+def extract_corp_bundle_fields(paths: list[str], render_dir: str) -> dict:
+    """paths: the corporate AOF, onboarding checklist, and any NetReveal screening files
+    (company-level and/or named individuals) for one corporate customer. Scope note: this
+    intentionally checks only the two Beneficial Owners the bank's own checklist names in
+    Appendix B, not the full multi-tier shareholding chain some of these corporate groups
+    have -- that matches the depth the real control itself verifies, not a shortcut."""
+    if not ai_client.is_configured():
+        return {"source_file": ", ".join(Path(p).name for p in paths), "error": "AI engine not configured", "sources": {}}
+    combined: dict = {}
+    sources: dict = {}
+    netreveal_screenings: list[dict] = []
+    for path in paths:
+        doc_name = Path(path).name
+        page_texts = _page_texts(path)
+        images: list[str] | None = None
+        for idx, page_text in enumerate(page_texts):
+            if len(page_text) >= MIN_TEXT_LAYER_CHARS:
+                data = _text_extract(page_text, _CORP_BUNDLE_PROMPT_TEXT, max_tokens=500)
+                source_tag = f"{doc_name} (page {idx + 1}, text)"
+            else:
+                if images is None:
+                    images = render_pdf_pages_to_images(path, render_dir, scale=PRS_VISION_SCALE)
+                data = _vision_extract(images[idx], _CORP_BUNDLE_PROMPT, max_tokens=500)
+                source_tag = f"{doc_name} (page {idx + 1}, AI vision)"
+            for key in _CORP_BUNDLE_TEXT_FIELDS:
+                value = data.get(key)
+                if value and key not in combined:
+                    combined[key] = value
+                    sources[key] = source_tag
+            if data.get("netreveal_subject_name"):
+                netreveal_screenings.append({
+                    "subject_name": data["netreveal_subject_name"],
+                    "has_matches": bool(data.get("netreveal_has_matches")),
+                    "source": source_tag,
+                })
+
+    return {
+        "source_file": ", ".join(Path(p).name for p in paths),
+        "company_name": combined.get("company_name", ""),
+        "registration_no": combined.get("registration_no", ""),
+        "prepared_by_name": combined.get("prepared_by_name", ""),
+        "prepared_by_date": combined.get("prepared_by_date", ""),
+        "checked_by_name": combined.get("checked_by_name", ""),
+        "checked_by_date": combined.get("checked_by_date", ""),
+        "approved_by_name": combined.get("approved_by_name", ""),
+        "approved_by_date": combined.get("approved_by_date", ""),
+        "bo1_name": combined.get("bo1_name", ""),
+        "bo1_nric": combined.get("bo1_nric", ""),
+        "bo2_name": combined.get("bo2_name", ""),
+        "bo2_nric": combined.get("bo2_nric", ""),
+        "netreveal_screenings": netreveal_screenings,
+        "sources": sources,
+    }
+
+
+_PB_REGISTER_PROMPT_TEXT = """Below is the extracted text from ONE PAGE of a Private Banking Sales Register -- an internal batch transaction sheet for Money Market / Unit Trust fund purchases, NOT an individual account-opening form (it lists multiple client codes and amounts under one transaction reference, with a dual-control sign-off at the bottom: some combination of "Prepared by", "Entered by", "Approved by", "Maker", "Checker").
+
+Page text:
+\"\"\"{text}\"\"\"
+
+Extract whatever of the following is present. A "signed" role only counts if there is an actual name, signature image reference (e.g. "Digitally signed by"), or checkmark next to it -- a blank line or label alone does not count. Use "" for anything not present, and null for a yes/no field not present.
+
+Return strict JSON only:
+{{"transaction_ref": "", "transaction_date": "", "fund_type": "", "grand_total": "", "maker_signed": null, "maker_name": "", "maker_date": "", "checker_signed": null, "checker_name": "", "checker_date": ""}}"""
+
+
+def extract_pb_register_fields(paths: list[str], render_dir: str) -> dict:
+    """paths: the Private Banking Sales Register PDF (and any other supporting file, e.g.
+    an exported email) for one batch transaction. This is NOT an individual account-opening
+    case -- there's no single applicant identity or TOMS record to reconcile against, so the
+    only thing genuinely checkable from this evidence is dual-control (maker/checker)
+    sign-off completeness, not identity/KYC accuracy."""
+    if not ai_client.is_configured():
+        return {"source_file": ", ".join(Path(p).name for p in paths), "error": "AI engine not configured", "sources": {}}
+    combined: dict = {}
+    sources: dict = {}
+    text_fields = ["transaction_ref", "transaction_date", "fund_type", "grand_total", "maker_name", "maker_date", "checker_name", "checker_date"]
+    for path in paths:
+        doc_name = Path(path).name
+        if Path(path).suffix.lower() != ".pdf":
+            continue
+        page_texts = _page_texts(path)
+        images: list[str] | None = None
+        for idx, page_text in enumerate(page_texts):
+            if len(page_text) >= MIN_TEXT_LAYER_CHARS:
+                data = _text_extract(page_text, _PB_REGISTER_PROMPT_TEXT, max_tokens=400)
+                source_tag = f"{doc_name} (page {idx + 1}, text)"
+            else:
+                if images is None:
+                    images = render_pdf_pages_to_images(path, render_dir, scale=PRS_VISION_SCALE)
+                source_tag = f"{doc_name} (page {idx + 1}, AI vision)"
+                data = {}
+            for key in text_fields:
+                value = data.get(key)
+                if value and key not in combined:
+                    combined[key] = value
+                    sources[key] = source_tag
+            if data.get("maker_signed") is not None and "maker_signed" not in combined:
+                combined["maker_signed"] = bool(data["maker_signed"])
+            if data.get("checker_signed") is not None and "checker_signed" not in combined:
+                combined["checker_signed"] = bool(data["checker_signed"])
+
+    return {
+        "source_file": ", ".join(Path(p).name for p in paths),
+        "transaction_ref": combined.get("transaction_ref", ""),
+        "transaction_date": combined.get("transaction_date", ""),
+        "fund_type": combined.get("fund_type", ""),
+        "grand_total": combined.get("grand_total", ""),
+        "maker_signed": bool(combined.get("maker_signed", False)),
+        "maker_name": combined.get("maker_name", ""),
+        "maker_date": combined.get("maker_date", ""),
+        "checker_signed": bool(combined.get("checker_signed", False)),
+        "checker_name": combined.get("checker_name", ""),
+        "checker_date": combined.get("checker_date", ""),
+        "sources": sources,
     }
